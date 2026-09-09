@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corridor Detection Algorithm Test Suite</title>
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+    <style>
+        body {
+            font-family: 'Consolas', 'Monaco', monospace;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        h1, h2, h3 { color: #4fc3f7; }
+        .test-suite { margin-bottom: 30px; border: 1px solid #333; padding: 15px; border-radius: 5px; }
+        .test-case { margin: 10px 0; padding: 10px; background: #252525; border-radius: 3px; }
+        .pass { border-left: 4px solid #4caf50; }
+        .fail { border-left: 4px solid #f44336; }
+        .test-name { font-weight: bold; }
+        .test-details { font-size: 12px; color: #888; margin-top: 5px; }
+        .expected { color: #4caf50; }
+        .actual { color: #ff9800; }
+        .summary {
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+            font-size: 18px;
+        }
+        .summary.all-pass { background: #1b5e20; }
+        .summary.has-fail { background: #b71c1c; }
+        pre { background: #0a0a0a; padding: 10px; overflow-x: auto; font-size: 11px; }
+        .visualization {
+            display: inline-block;
+            margin: 10px 0;
+            padding: 10px;
+            background: #0a0a0a;
+            border-radius: 3px;
+        }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <h1>Corridor Detection Algorithm Test Suite</h1>
+    <p>Tests the corridor detection algorithm: segment clipping + parallel weighting (src/analysis.js).</p>
+
+    <div id="summary" class="summary"></div>
+    <div id="results"></div>
+
+    <script>
+        // ============================================
+        // HELPER FUNCTIONS (from index.html)
+        // ============================================
+
+        function normalizeToLineStrings(feature) {
+            const geom = feature.geometry || feature;
+            if (geom.type === 'LineString') {
+                return [turf.lineString(geom.coordinates)];
+            } else if (geom.type === 'MultiLineString') {
+                return geom.coordinates.map(coords => turf.lineString(coords));
+            }
+            return [];
+        }
+
+        // ============================================
+        // CORRIDOR MATCH ALGORITHM
+        // ============================================
+
+        /**
+         * Calculate the length of a line segment that falls inside a polygon buffer.
+         * Uses polygon boundary intersection to find exact entry/exit points.
+         *
+         * @param {Object} segment - Turf.js LineString (2 coordinates)
+         * @param {Object} buffer - Turf.js Polygon (the corridor buffer)
+         * @returns {number} Length in feet of segment inside the buffer
+         */
+        function measureSegmentInsideBuffer(segment, buffer) {
+            const coords = turf.getCoords(segment);
+            if (coords.length < 2) return 0;
+
+            const startPt = turf.point(coords[0]);
+            const endPt = turf.point(coords[coords.length - 1]);
+            const segmentLength = turf.length(segment, { units: 'feet' });
+
+            if (segmentLength === 0) return 0;
+
+            const startInside = turf.booleanPointInPolygon(startPt, buffer);
+            const endInside = turf.booleanPointInPolygon(endPt, buffer);
+
+            // Case 1: Both endpoints inside - entire segment is inside
+            if (startInside && endInside) {
+                return segmentLength;
+            }
+
+            // Find where segment crosses buffer boundary
+            const bufferBoundary = turf.polygonToLine(buffer);
+            const intersections = turf.lineIntersect(segment, bufferBoundary);
+
+            // Case 2: No boundary crossings
+            if (intersections.features.length === 0) {
+                // If start is inside but no crossings, entire segment must be inside
+                // (This handles numerical edge cases near boundary)
+                return startInside ? segmentLength : 0;
+            }
+
+            // Calculate distance along segment for each intersection point
+            const distances = [];
+            for (const pt of intersections.features) {
+                // Find the nearest point on the segment to this intersection
+                const nearest = turf.nearestPointOnLine(segment, pt, { units: 'feet' });
+                distances.push(nearest.properties.location);
+            }
+
+            // Sort distances from start to end
+            distances.sort((a, b) => a - b);
+
+            // Walk along segment, tracking inside/outside state
+            let totalInside = 0;
+            let inside = startInside;
+            let prevDist = 0;
+
+            for (const dist of distances) {
+                if (inside) {
+                    totalInside += dist - prevDist;
+                }
+                prevDist = dist;
+                inside = !inside; // Toggle at each boundary crossing
+            }
+
+            // Handle final segment from last crossing to end
+            if (inside) {
+                totalInside += segmentLength - prevDist;
+            }
+
+            return Math.max(0, totalInside); // Ensure non-negative
+        }
+
+        /**
+         * Return cos(angle) between a segment and the overall project line direction.
+         * 1.0 = fully parallel, 0.0 = fully perpendicular.
+         * Prevents perpendicular crossings from accumulating as "parallel overlap".
+         */
+        function segmentParallelFactor(segment, projectCoords) {
+            if (!projectCoords || projectCoords.length < 2) return 1;
+            const segCoords = turf.getCoords(segment);
+            if (segCoords.length < 2) return 0;
+
+            const [sx1, sy1] = segCoords[0];
+            const [sx2, sy2] = segCoords[segCoords.length - 1];
+            if (sx1 === sx2 && sy1 === sy2) return 0;
+
+            const segBearing     = turf.bearing(turf.point(segCoords[0]),    turf.point(segCoords[segCoords.length - 1]));
+            const projectBearing = turf.bearing(turf.point(projectCoords[0]), turf.point(projectCoords[projectCoords.length - 1]));
+
+            let angleDeg = Math.abs(segBearing - projectBearing);
+            if (angleDeg > 180) angleDeg = 360 - angleDeg;
+            if (angleDeg > 90)  angleDeg = 180 - angleDeg;
+
+            return Math.cos(angleDeg * Math.PI / 180);
+        }
+
+        /**
+         * Corridor match analysis using segment clipping + parallel weighting.
+         * Matches src/analysis.js: analyzeListParallelFeatures / analyzeMeasureProjectByCategory.
+         */
+        function analyzeCorridorMatch(drawnGeometry, bufferDistance, minSharedLength, routeFeature) {
+            const geometry = drawnGeometry.type === 'Feature' ? drawnGeometry.geometry : drawnGeometry;
+
+            if (geometry.type !== 'LineString') return { match: false, overlap: 0 };
+
+            const corridorBuffer = turf.buffer(geometry, bufferDistance, { units: 'feet' });
+
+            // Quick rejection: no intersection at all
+            if (!turf.booleanIntersects(corridorBuffer, routeFeature)) {
+                return { match: false, overlap: 0 };
+            }
+
+            const projectCoords = turf.getCoords(geometry);
+            const routeLines = normalizeToLineStrings(routeFeature);
+            let totalOverlap = 0;
+
+            for (const routeLine of routeLines) {
+                const routeCoords = turf.getCoords(routeLine);
+
+                for (let i = 0; i < routeCoords.length - 1; i++) {
+                    const segment = turf.lineString([routeCoords[i], routeCoords[i + 1]]);
+
+                    if (!turf.booleanIntersects(segment, corridorBuffer)) {
+                        continue;
+                    }
+
+                    // Weight by parallel factor: perpendicular crossings contribute ~0
+                    const insideLength = measureSegmentInsideBuffer(segment, corridorBuffer);
+                    totalOverlap += insideLength * segmentParallelFactor(segment, projectCoords);
+                }
+
+                if (totalOverlap >= minSharedLength) {
+                    break;
+                }
+            }
+
+            return {
+                match: totalOverlap >= minSharedLength,
+                overlap: totalOverlap
+            };
+        }
+
+        // ============================================
+        // TEST UTILITIES
+        // ============================================
+
+        /**
+         * Create a horizontal line (east-west) at given latitude
+         */
+        function createEWLine(centerLon, lat, lengthFeet) {
+            // Approximate: 1 degree longitude ≈ 288,200 feet at 35°N latitude
+            const degreesPerFoot = 1 / 288200;
+            const halfLength = (lengthFeet / 2) * degreesPerFoot;
+            return turf.lineString([
+                [centerLon - halfLength, lat],
+                [centerLon + halfLength, lat]
+            ]);
+        }
+
+        /**
+         * Create a vertical line (north-south) at given longitude
+         */
+        function createNSLine(lon, centerLat, lengthFeet) {
+            // Approximate: 1 degree latitude ≈ 364,000 feet
+            const degreesPerFoot = 1 / 364000;
+            const halfLength = (lengthFeet / 2) * degreesPerFoot;
+            return turf.lineString([
+                [lon, centerLat - halfLength],
+                [lon, centerLat + halfLength]
+            ]);
+        }
+
+        /**
+         * Create an angled line
+         */
+        function createAngledLine(startLon, startLat, lengthFeet, angleDegrees) {
+            const lonDegreesPerFoot = 1 / 288200;
+            const latDegreesPerFoot = 1 / 364000;
+            const angleRad = (angleDegrees * Math.PI) / 180;
+
+            const dx = Math.cos(angleRad) * lengthFeet * lonDegreesPerFoot;
+            const dy = Math.sin(angleRad) * lengthFeet * latDegreesPerFoot;
+
+            return turf.lineString([
+                [startLon, startLat],
+                [startLon + dx, startLat + dy]
+            ]);
+        }
+
+        /**
+         * Offset a line by a perpendicular distance (in feet)
+         */
+        function offsetLine(line, offsetFeet, direction = 'north') {
+            const coords = turf.getCoords(line);
+            const latDegreesPerFoot = 1 / 364000;
+            const lonDegreesPerFoot = 1 / 288200;
+
+            const offset = direction === 'north' || direction === 'south'
+                ? offsetFeet * latDegreesPerFoot * (direction === 'north' ? 1 : -1)
+                : offsetFeet * lonDegreesPerFoot * (direction === 'east' ? 1 : -1);
+
+            const newCoords = coords.map(coord => {
+                if (direction === 'north' || direction === 'south') {
+                    return [coord[0], coord[1] + offset];
+                } else {
+                    return [coord[0] + offset, coord[1]];
+                }
+            });
+
+            return turf.lineString(newCoords);
+        }
+
+        // ============================================
+        // TEST CASES
+        // ============================================
+
+        const TEST_CASES = [
+            // ========== PARALLEL ROUTES (SHOULD MATCH) ==========
+            {
+                name: "Parallel route 50ft away, 800ft overlap",
+                description: "Route runs parallel to project, 50ft offset, for 800ft",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 1000);
+                    const route = offsetLine(createEWLine(-90.0, 35.0, 800), 50, 'north');
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: true,
+                expectedOverlapMin: 700, // Should be close to 800ft
+                expectedOverlapMax: 850
+            },
+            {
+                name: "Parallel route entirely within buffer (30ft offset)",
+                description: "Route runs parallel and very close (30ft), entire 500ft inside buffer",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 600);
+                    const route = offsetLine(createEWLine(-90.0, 35.0, 500), 30, 'north');
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: true,
+                expectedOverlapMin: 480,
+                expectedOverlapMax: 520
+            },
+            {
+                name: "Parallel route at edge of buffer (90ft offset)",
+                description: "Route runs parallel at nearly the buffer edge",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 600);
+                    const route = offsetLine(createEWLine(-90.0, 35.0, 500), 90, 'north');
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: true,
+                expectedOverlapMin: 400,
+                expectedOverlapMax: 520
+            },
+
+            // ========== PERPENDICULAR CROSSINGS (SHOULD NOT MATCH) ==========
+            {
+                name: "Perpendicular crossing - short route (200ft)",
+                description: "North-south route crosses east-west project at 90 degrees",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 500);
+                    const route = createNSLine(-90.0, 35.0, 200);
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: false,
+                expectedOverlapMin: 0,
+                expectedOverlapMax: 250 // Should be ~200ft (buffer width)
+            },
+            {
+                name: "Perpendicular crossing - long route (500ft) - THE BUG CASE",
+                description: "Long N-S route crosses E-W project. Current algorithm counts 500ft, should count ~200ft",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 500);
+                    const route = createNSLine(-90.0, 35.0, 500);
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: false,
+                expectedOverlapMin: 0,
+                expectedOverlapMax: 250 // Should be ~200ft (buffer width), NOT 500ft
+            },
+            {
+                name: "Perpendicular crossing - very long route (1000ft)",
+                description: "Very long N-S route crosses project. Should only count portion inside buffer",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 500);
+                    const route = createNSLine(-90.0, 35.0, 1000);
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: false,
+                expectedOverlapMin: 0,
+                expectedOverlapMax: 250 // Should be ~200ft
+            },
+            {
+                name: "Multiple perpendicular crossings",
+                description: "Two N-S segments cross the E-W project. Both are perpendicular (factor≈0), weighted overlap should be ~0 regardless of inside length",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 1000);
+                    // Two vertical segments crossing at different points
+                    const route = turf.featureCollection([
+                        turf.feature({
+                            type: 'MultiLineString',
+                            coordinates: [
+                                // First crossing at -90.001
+                                [[-90.001, 34.999], [-90.001, 35.001]],
+                                // Second crossing at -89.999
+                                [[-89.999, 34.999], [-89.999, 35.001]]
+                            ]
+                        })
+                    ]).features[0];
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: false,
+                expectedOverlapMin: 0,
+                expectedOverlapMax: 30 // cos(90°)=0 → weighted overlap ≈ 0 (small tolerance for float noise)
+            },
+
+            // ========== ANGLED APPROACHES (EDGE CASES) ==========
+            {
+                name: "45-degree angle approach - 600ft segment",
+                description: "Route approaches at 45 degrees, should count diagonal portion inside buffer",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 500);
+                    const route = createAngledLine(-90.001, 34.999, 600, 45);
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: false, // 45° crossing is mostly passing through
+                expectedOverlapMin: 0,
+                expectedOverlapMax: 350 // Diagonal crossing ~280ft
+            },
+            {
+                name: "Shallow-angle approach (15°) - significant parallel component",
+                description: "Route at 15° runs mostly parallel to E-W project. Starts inside buffer, exits north side. Weighted overlap ~335ft (cos15°≈0.97 * ~348ft inside)",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 800);
+                    // Start inside the buffer body (10ft north of project centerline, 230ft west of center)
+                    const route = createAngledLine(-90.0008, 35.0000275, 700, 15);
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: true,
+                expectedOverlapMin: 270,
+                expectedOverlapMax: 420
+            },
+
+            // ========== EDGE CASES ==========
+            {
+                name: "Route entirely outside buffer",
+                description: "Route is 200ft away from project (outside 100ft buffer)",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 500);
+                    const route = offsetLine(createEWLine(-90.0, 35.0, 500), 200, 'north');
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: false,
+                expectedOverlapMin: 0,
+                expectedOverlapMax: 0
+            },
+            {
+                name: "Short parallel segment (100ft) - below threshold",
+                description: "Parallel route for only 100ft (below 300ft minimum)",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 500);
+                    const route = offsetLine(createEWLine(-90.0, 35.0, 100), 30, 'north');
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: false,
+                expectedOverlapMin: 50,
+                expectedOverlapMax: 150
+            },
+            {
+                name: "Route starts inside buffer, exits, and never returns",
+                description: "Route segment that starts parallel then veers away",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 500);
+                    // Route starts parallel then angles away
+                    const route = turf.lineString([
+                        [-90.001, 35.00005],  // ~18ft north, inside buffer
+                        [-89.999, 35.00005],  // Runs parallel for ~580ft
+                        [-89.998, 35.002]     // Then angles sharply north
+                    ]);
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: true,
+                expectedOverlapMin: 400,
+                expectedOverlapMax: 700
+            },
+            {
+                name: "MultiLineString with mixed segments",
+                description: "Some segments parallel, some perpendicular",
+                setup: () => {
+                    const project = createEWLine(-90.0, 35.0, 1000);
+                    const route = turf.feature({
+                        type: 'MultiLineString',
+                        coordinates: [
+                            // Parallel segment (400ft) - 30ft offset
+                            [[-90.001, 35.00008], [-89.9996, 35.00008]],
+                            // Perpendicular segment (500ft crossing)
+                            [[-89.998, 34.999], [-89.998, 35.001]]
+                        ]
+                    });
+                    return { project, route };
+                },
+                bufferDistance: 100,
+                minSharedLength: 300,
+                expectedMatch: true, // ~400ft parallel segment (factor≈1) + 0ft from perpendicular crossing (factor=0)
+                expectedOverlapMin: 300,
+                expectedOverlapMax: 450
+            }
+        ];
+
+        // ============================================
+        // TEST RUNNER
+        // ============================================
+
+        function runTests() {
+            const results = [];
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '';
+
+            for (const testCase of TEST_CASES) {
+                const { project, route } = testCase.setup();
+
+                const result = analyzeCorridorMatch(
+                    project,
+                    testCase.bufferDistance,
+                    testCase.minSharedLength,
+                    route
+                );
+
+                const matchCorrect = result.match === testCase.expectedMatch;
+                const overlapInRange = result.overlap >= testCase.expectedOverlapMin &&
+                                       result.overlap <= testCase.expectedOverlapMax;
+                const passed = matchCorrect && overlapInRange;
+
+                results.push({ ...testCase, result, passed });
+
+                const div = document.createElement('div');
+                div.className = `test-case ${passed ? 'pass' : 'fail'}`;
+                div.innerHTML = `
+                    <div class="test-name">${passed ? '✓' : '✗'} ${testCase.name}</div>
+                    <div class="test-details">${testCase.description}</div>
+                    <div class="test-details">
+                        <strong>Expected:</strong>
+                        <span class="expected">
+                            match=${testCase.expectedMatch},
+                            overlap=${testCase.expectedOverlapMin}-${testCase.expectedOverlapMax}ft
+                        </span>
+                    </div>
+                    <div class="test-details">
+                        <strong>Actual:</strong>
+                        <span class="actual" style="color: ${passed ? '#4caf50' : '#f44336'}">
+                            match=${result.match},
+                            overlap=${result.overlap.toFixed(1)}ft
+                        </span>
+                    </div>
+                `;
+                resultsDiv.appendChild(div);
+            }
+
+            const totalTests = results.length;
+            const passed = results.filter(r => r.passed).length;
+
+            const summaryDiv = document.getElementById('summary');
+            summaryDiv.className = `summary ${passed === totalTests ? 'all-pass' : 'has-fail'}`;
+            summaryDiv.innerHTML = `<strong>${passed}/${totalTests} passing</strong>`;
+
+            return results;
+        }
+
+        // Run tests on page load
+        window.onload = runTests;
+    </script>
+</body>
+</html>

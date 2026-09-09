@@ -1,0 +1,15 @@
+# Claude Code internal directory
+.claude/
+
+# Internal development task tickets
+todos/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Internal solution documentation (for team use, not in repo)
+docs/solutions/
+docs/brainstorms/
+docs/plans/

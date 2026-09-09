@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decoupled Analysis Methods — Cross-Geometry Tests</title>
+  <style>
+    body { font-family: monospace; margin: 20px; background: #f8f8f8; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; margin-top: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    .pass { color: green; }
+    .fail { color: red; font-weight: bold; }
+    .skip { color: #999; }
+    #results { white-space: pre-wrap; line-height: 1.6; }
+    #summary { margin-top: 20px; padding: 10px; font-size: 14px; border: 2px solid; }
+    #summary.all-pass { border-color: green; background: #e6ffe6; }
+    #summary.has-fail { border-color: red; background: #ffe6e6; }
+  </style>
+</head>
+<body>
+  <h1>Decoupled Analysis Methods — Cross-Geometry Tests</h1>
+  <p>Tests that analysis methods work across geometry types after the v2.2 refactor.</p>
+  <div id="results">Loading dependencies...</div>
+  <div id="summary"></div>
+
+  <!-- Dependencies (same CDN versions as main app) -->
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+  <script src="https://unpkg.com/martinez-polygon-clipping@0.7.4/dist/martinez.min.js"></script>
+
+  <!-- Load analysis.js helpers + primitives + methods -->
+  <script src="../src/analysis.js"></script>
+
+  <script>
+    // ============================================
+    // TEST HARNESS
+    // ============================================
+    const tests = [];
+    let passed = 0;
+    let failed = 0;
+
+    function test(name, fn) {
+      tests.push({ name, fn });
+    }
+
+    function assert(condition, msg) {
+      if (!condition) throw new Error(msg || 'Assertion failed');
+    }
+
+    function assertEqual(actual, expected, msg) {
+      if (actual !== expected) {
+        throw new Error(`${msg || 'assertEqual'}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+      }
+    }
+
+    function assertGreater(actual, threshold, msg) {
+      if (!(actual > threshold)) {
+        throw new Error(`${msg || 'assertGreater'}: expected > ${threshold}, got ${actual}`);
+      }
+    }
+
+    async function runTests() {
+      const out = document.getElementById('results');
+      const summaryEl = document.getElementById('summary');
+      out.innerHTML = '';
+
+      for (const t of tests) {
+        try {
+          await t.fn();
+          out.innerHTML += `<span class="pass">PASS</span>  ${t.name}\n`;
+          passed++;
+        } catch (e) {
+          out.innerHTML += `<span class="fail">FAIL</span>  ${t.name}\n       ${e.message}\n`;
+          failed++;
+        }
+      }
+
+      const total = passed + failed;
+      summaryEl.textContent = `${passed}/${total} passed, ${failed} failed`;
+      summaryEl.className = failed === 0 ? 'all-pass' : 'has-fail';
+    }
+
+    // ============================================
+    // TEST DATA — synthetic features for controlled testing
+    // ============================================
+
+    // A drawn LineString in downtown Memphis area (~0.5 mi east-west)
+    const drawnLine = turf.lineString([
+      [-89.98, 35.15],
+      [-89.97, 35.15],
+      [-89.96, 35.15]
+    ]);
+    const drawnLineGeom = { type: 'Feature', geometry: drawnLine.geometry };
+
+    // A drawn Point
+    const drawnPoint = turf.point([-89.97, 35.15]);
+    const drawnPointGeom = { type: 'Feature', geometry: drawnPoint.geometry };
+
+    // --- Point features ---
+    const pointNearby = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-89.971, 35.1505] },
+      properties: { NAME: 'Near Point', TYPE: 'A', VALUE: 10 }
+    };
+    const pointFar = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-89.50, 35.30] },
+      properties: { NAME: 'Far Point', TYPE: 'B', VALUE: 20 }
+    };
+
+    // --- LineString features ---
+    // Parallel to drawn line (nearby, same bearing)
+    const lineParallel = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [[-89.98, 35.1505], [-89.96, 35.1505]] },
+      properties: { NAME: 'Parallel Route', TYPE: 'Regional', SPEED: 35, STATUS: 'Good' }
+    };
+    // Perpendicular crossing
+    const linePerpendicular = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [[-89.97, 35.14], [-89.97, 35.16]] },
+      properties: { NAME: 'Crossroad', TYPE: 'Local', SPEED: 25, STATUS: 'Fair' }
+    };
+    // Far away line
+    const lineFar = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [[-89.80, 35.20], [-89.79, 35.20]] },
+      properties: { NAME: 'Distant Route', TYPE: 'Local', SPEED: 45, STATUS: 'Poor' }
+    };
+
+    // --- MultiLineString feature ---
+    const multiLine = {
+      type: 'Feature',
+      geometry: {
+        type: 'MultiLineString',
+        coordinates: [
+          [[-89.98, 35.1503], [-89.97, 35.1503]],
+          [[-89.97, 35.1503], [-89.96, 35.1503]]
+        ]
+      },
+      properties: { NAME: 'Multi Route', TYPE: 'Regional', SPEED: 30, STATUS: 'Good' }
+    };
+
+    // --- Polygon features ---
+    const polygonNearby = {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [-89.975, 35.148], [-89.965, 35.148],
+          [-89.965, 35.152], [-89.975, 35.152],
+          [-89.975, 35.148]
+        ]]
+      },
+      properties: { NAME: 'Near Park', SQMI: 0.05, FEATTYPE: 'Park', AREA_ACRES: 32 }
+    };
+    const polygonFar = {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [-89.80, 35.20], [-89.79, 35.20],
+          [-89.79, 35.21], [-89.80, 35.21],
+          [-89.80, 35.20]
+        ]]
+      },
+      properties: { NAME: 'Far Park', SQMI: 0.10, FEATTYPE: 'Recreation', AREA_ACRES: 64 }
+    };
+
+    // --- MultiPolygon feature ---
+    const multiPolygon = {
+      type: 'Feature',
+      geometry: {
+        type: 'MultiPolygon',
+        coordinates: [
+          [[[-89.975, 35.149], [-89.972, 35.149], [-89.972, 35.151], [-89.975, 35.151], [-89.975, 35.149]]],
+          [[[-89.968, 35.149], [-89.965, 35.149], [-89.965, 35.151], [-89.968, 35.151], [-89.968, 35.149]]]
+        ]
+      },
+      properties: { NAME: 'Multi-Part Wetland', WETLAND_TYPE: 'PFO', AREA_ACRES: 5 }
+    };
+
+    // Helper to make a FeatureCollection
+    function fc(...features) {
+      return { type: 'FeatureCollection', features };
+    }
+
+    // ============================================
+    // SECTION 1: SPATIAL PRIMITIVES
+    // ============================================
+
+    test('isFeatureNearby: Point feature in buffer → true', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      assert(isFeatureNearby(drawnLine.geometry, pointNearby, buffer) === true);
+    });
+
+    test('isFeatureNearby: Point feature outside buffer → false', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      assert(isFeatureNearby(drawnLine.geometry, pointFar, buffer) === false);
+    });
+
+    test('isFeatureNearby: LineString feature intersecting buffer → true', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      assert(isFeatureNearby(drawnLine.geometry, lineParallel, buffer) === true);
+    });
+
+    test('isFeatureNearby: LineString feature far from buffer → false', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      assert(isFeatureNearby(drawnLine.geometry, lineFar, buffer) === false);
+    });
+
+    test('isFeatureNearby: Polygon feature intersecting buffer → true', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      assert(isFeatureNearby(drawnLine.geometry, polygonNearby, buffer) === true);
+    });
+
+    test('isFeatureNearby: Polygon feature far from buffer → false', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      assert(isFeatureNearby(drawnLine.geometry, polygonFar, buffer) === false);
+    });
+
+    test('getFeatureDistance: Point feature returns correct distance', () => {
+      const centroid = turf.centroid(drawnLine.geometry);
+      const dist = getFeatureDistance(centroid, pointNearby, 'feet');
+      assertGreater(dist, 0, 'Distance should be > 0');
+      assert(dist < 2000, `Distance ${dist} should be < 2000 ft`);
+    });
+
+    test('getFeatureDistance: LineString feature uses pointToLineDistance', () => {
+      const centroid = turf.centroid(drawnLine.geometry);
+      const dist = getFeatureDistance(centroid, lineParallel, 'feet');
+      assertGreater(dist, 0, 'Distance should be > 0');
+      assert(dist < 500, `Distance ${dist} to parallel line should be < 500 ft`);
+    });
+
+    test('getFeatureDistance: Polygon feature — 0 if centroid inside', () => {
+      // Make a polygon that contains the drawn line's centroid
+      const bigPoly = {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[
+            [-89.99, 35.14], [-89.95, 35.14],
+            [-89.95, 35.16], [-89.99, 35.16],
+            [-89.99, 35.14]
+          ]]
+        },
+        properties: {}
+      };
+      const centroid = turf.centroid(drawnLine.geometry);
+      const dist = getFeatureDistance(centroid, bigPoly, 'feet');
+      assertEqual(dist, 0, 'Distance should be 0 when centroid is inside polygon');
+    });
+
+    test('getFeatureDistance: Polygon feature — boundary distance if outside', () => {
+      const centroid = turf.centroid(drawnLine.geometry);
+      const dist = getFeatureDistance(centroid, polygonFar, 'feet');
+      assertGreater(dist, 10000, 'Far polygon should be > 10000 ft away');
+    });
+
+    test('getCorridorMatch: returns null for Point features', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 200, { units: 'feet' });
+      const result = getCorridorMatch(drawnLine.geometry, pointNearby, buffer, { bufferUnit: 'feet', minSharedLength: 0 });
+      assertEqual(result, null, 'Should return null for Point features');
+    });
+
+    test('getCorridorMatch: returns null for Polygon features', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 200, { units: 'feet' });
+      const result = getCorridorMatch(drawnLine.geometry, polygonNearby, buffer, { bufferUnit: 'feet', minSharedLength: 0 });
+      assertEqual(result, null, 'Should return null for Polygon features');
+    });
+
+    test('getCorridorMatch: parallel LineString → isMatch true', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 200, { units: 'feet' });
+      const result = getCorridorMatch(drawnLine.geometry, lineParallel, buffer, { bufferUnit: 'feet', minSharedLength: 300 });
+      assert(result !== null, 'Should not return null for LineString');
+      assert(result.isMatch === true, `Should match: overlapLength=${result.overlapLength}`);
+      assertGreater(result.overlapLength, 300, 'Overlap should exceed minSharedLength');
+    });
+
+    test('getCorridorMatch: perpendicular crossing → low overlap', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 200, { units: 'feet' });
+      const result = getCorridorMatch(drawnLine.geometry, linePerpendicular, buffer, { bufferUnit: 'feet', minSharedLength: 300 });
+      assert(result !== null, 'Should not return null for LineString');
+      assert(result.isMatch === false, `Perpendicular should not match (overlap=${result.overlapLength})`);
+    });
+
+    test('getCorridorMatch: MultiLineString feature works correctly', () => {
+      const buffer = turf.buffer(drawnLine.geometry, 200, { units: 'feet' });
+      const result = getCorridorMatch(drawnLine.geometry, multiLine, buffer, { bufferUnit: 'feet', minSharedLength: 300 });
+      assert(result !== null, 'Should not return null for MultiLineString');
+      assert(result.isMatch === true, `MultiLineString should match: overlapLength=${result.overlapLength}`);
+    });
+
+    test('getCorridorMatch: Point drawn geometry + LineString feature', () => {
+      const buffer = turf.buffer(drawnPoint.geometry, 500, { units: 'feet' });
+      const result = getCorridorMatch(drawnPoint.geometry, lineParallel, buffer, { bufferUnit: 'feet', minSharedLength: 0 });
+      assert(result !== null, 'Should work for Point drawn geometry');
+      assert(result.isMatch === true, 'Should match when line intersects point buffer');
+      assertGreater(result.overlapLength, 0, 'Overlap length should be > 0');
+    });
+
+    test('getCorridorMatch: Polygon drawn geometry → null', () => {
+      const polyGeom = polygonNearby.geometry;
+      const buffer = turf.buffer(polyGeom, 200, { units: 'feet' });
+      const result = getCorridorMatch(polyGeom, lineParallel, buffer, { bufferUnit: 'feet', minSharedLength: 0 });
+      assertEqual(result, null, 'Should return null for Polygon drawn geometry');
+    });
+
+    test('getIntersectionArea: Polygon feature returns area > 0', () => {
+      const buffered = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      const area = getIntersectionArea(polygonNearby, buffered, 'acres');
+      assertGreater(area, 0, 'Intersection area should be > 0 for overlapping polygon');
+    });
+
+    test('getIntersectionArea: MultiPolygon feature returns area > 0', () => {
+      const buffered = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      const area = getIntersectionArea(multiPolygon, buffered, 'acres');
+      assertGreater(area, 0, 'Intersection area should be > 0 for overlapping MultiPolygon');
+    });
+
+    test('getIntersectionArea: Point feature returns 0', () => {
+      const buffered = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      const area = getIntersectionArea(pointNearby, buffered, 'acres');
+      assertEqual(area, 0, 'Intersection area should be 0 for Point feature');
+    });
+
+    test('getIntersectionArea: LineString feature returns 0', () => {
+      const buffered = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      const area = getIntersectionArea(lineParallel, buffered, 'acres');
+      assertEqual(area, 0, 'Intersection area should be 0 for LineString feature');
+    });
+
+    test('getIntersectionArea: non-overlapping Polygon returns 0', () => {
+      const buffered = turf.buffer(drawnLine.geometry, 500, { units: 'feet' });
+      const area = getIntersectionArea(polygonFar, buffered, 'acres');
+      assertEqual(area, 0, 'Intersection area should be 0 for non-overlapping polygon');
+    });
+
+    // ============================================
+    // SECTION 2: CROSS-GEOMETRY ANALYSIS METHODS
+    // ============================================
+
+    // --- countByCategory: now works with LineString and Polygon features ---
+
+    test('countByCategory: Polygon features (was Point-only)', () => {
+      const config = {
+        geometryType: 'Polygon',
+        proximityBuffer: 2000,
+        bufferUnit: 'feet',
+        countByField: 'FEATTYPE',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeCountByCategory(drawnLineGeom, config, fc(polygonNearby, polygonFar));
+      assertEqual(result.total, 1, 'Should count 1 nearby polygon');
+      assertEqual(result.breakdown['Park'], 1, 'Should categorize as Park');
+    });
+
+    test('countByCategory: LineString features (was Point-only)', () => {
+      const config = {
+        geometryType: 'LineString',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        countByField: 'TYPE',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeCountByCategory(drawnLineGeom, config, fc(lineParallel, linePerpendicular, lineFar));
+      assertEqual(result.total, 2, 'Should count 2 nearby lines');
+      assertEqual(result.breakdown['Regional'], 1, 'One Regional');
+      assertEqual(result.breakdown['Local'], 1, 'One Local');
+    });
+
+    test('countByCategory: Point features still works (regression)', () => {
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        countByField: 'TYPE',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeCountByCategory(drawnLineGeom, config, fc(pointNearby, pointFar));
+      assertEqual(result.total, 1, 'Should count 1 nearby point');
+    });
+
+    test('countByCategory: Point drawn geometry + Polygon features', () => {
+      const config = {
+        geometryType: 'Polygon',
+        proximityBuffer: 2000,
+        bufferUnit: 'feet',
+        countByField: 'FEATTYPE',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeCountByCategory(drawnPointGeom, config, fc(polygonNearby, polygonFar));
+      assertEqual(result.total, 1, 'Point drawn geometry should find nearby polygon');
+    });
+
+    // --- listNearbyFeatures: now works with LineString features ---
+
+    test('listNearbyFeatures: LineString features (was skipped)', () => {
+      const config = {
+        geometryType: 'LineString',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME', additionalFields: ['TYPE'] }
+      };
+      const result = analyzeListNearbyFeatures(drawnLineGeom, config, fc(lineParallel, linePerpendicular, lineFar));
+      assertEqual(result.length, 2, 'Should find 2 nearby lines');
+    });
+
+    test('listNearbyFeatures: Polygon features still works (regression)', () => {
+      const config = {
+        geometryType: 'Polygon',
+        proximityBuffer: 2000,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME', additionalFields: ['FEATTYPE'] }
+      };
+      const result = analyzeListNearbyFeatures(drawnLineGeom, config, fc(polygonNearby, polygonFar));
+      assertEqual(result.length, 1, 'Should find 1 nearby polygon');
+    });
+
+    test('listNearbyFeatures: Point features still works (regression)', () => {
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME', additionalFields: ['TYPE'] }
+      };
+      const result = analyzeListNearbyFeatures(drawnLineGeom, config, fc(pointNearby, pointFar));
+      assertEqual(result.length, 1, 'Should find 1 nearby point');
+    });
+
+    // --- Regression: configs with no additionalFields (silent-drop bug) ---
+    // These simulate the real flow: config omits the key entirely,
+    // normalization fills in defaults, then analysis runs.
+
+    function normalizeConfig(config) {
+      if (!config.properties) {
+        config.properties = {};
+      }
+      config.properties.additionalFields = config.properties.additionalFields || [];
+      config.properties.fieldLabels = config.properties.fieldLabels || {};
+      return config;
+    }
+
+    test('listNearbyFeatures: config missing additionalFields entirely', () => {
+      const config = normalizeConfig({
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }  // no additionalFields key
+      });
+      const result = analyzeListNearbyFeatures(drawnLineGeom, config, fc(pointNearby, pointFar));
+      assertEqual(result.length, 1, 'Should find 1 nearby point even with no additionalFields');
+    });
+
+    test('listIntersectingFeatures: config missing additionalFields entirely', () => {
+      const config = normalizeConfig({
+        geometryType: 'Polygon',
+        bufferDistance: 0,
+        properties: { displayField: 'NAME' }  // no additionalFields key
+      });
+      const result = analyzeListIntersectingFeatures(drawnLineGeom, config, fc(polygonNearby));
+      assertEqual(result.length, 1, 'Should find 1 intersecting polygon even with no additionalFields');
+    });
+
+    // --- hasNearbyFeatures: works with all types (regression) ---
+
+    test('hasNearbyFeatures: Point feature detected', () => {
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeHasNearbyFeatures(drawnLineGeom, config, fc(pointNearby));
+      assert(result.detected === true, 'Should detect nearby point');
+    });
+
+    test('hasNearbyFeatures: LineString feature detected', () => {
+      const config = {
+        geometryType: 'LineString',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeHasNearbyFeatures(drawnLineGeom, config, fc(lineParallel));
+      assert(result.detected === true, 'Should detect nearby line');
+    });
+
+    test('hasNearbyFeatures: Polygon feature detected', () => {
+      const config = {
+        geometryType: 'Polygon',
+        proximityBuffer: 2000,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeHasNearbyFeatures(drawnLineGeom, config, fc(polygonNearby));
+      assert(result.detected === true, 'Should detect nearby polygon');
+    });
+
+    test('hasNearbyFeatures: nothing detected when all far', () => {
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeHasNearbyFeatures(drawnLineGeom, config, fc(pointFar));
+      assert(result.detected === false, 'Should not detect far point');
+    });
+
+    // --- sumNearbyValues: now works without geometry-type branching ---
+
+    test('sumNearbyValues: Polygon features', () => {
+      const config = {
+        geometryType: 'Polygon',
+        proximityBuffer: 2000,
+        bufferUnit: 'feet',
+        sumField: 'AREA_ACRES',
+        properties: { displayField: 'NAME', additionalFields: [] }
+      };
+      const result = analyzeSumNearbyValues(drawnLineGeom, config, fc(polygonNearby, polygonFar));
+      assertEqual(result.sum, 32, 'Should sum only nearby polygon');
+      assertEqual(result.total, 1, 'Should match 1 feature');
+    });
+
+    test('sumNearbyValues: LineString features', () => {
+      const config = {
+        geometryType: 'LineString',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        sumField: 'SPEED',
+        properties: { displayField: 'NAME', additionalFields: [] }
+      };
+      const result = analyzeSumNearbyValues(drawnLineGeom, config, fc(lineParallel, linePerpendicular, lineFar));
+      assertEqual(result.sum, 60, 'Should sum SPEED for 2 nearby lines (35+25)');
+      assertEqual(result.total, 2, 'Should match 2 features');
+    });
+
+    test('sumNearbyValues: Point features (regression)', () => {
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        sumField: 'VALUE',
+        properties: { displayField: 'NAME', additionalFields: [] }
+      };
+      const result = analyzeSumNearbyValues(drawnLineGeom, config, fc(pointNearby, pointFar));
+      assertEqual(result.sum, 10, 'Should sum VALUE for 1 nearby point');
+    });
+
+    // --- findNearestFeatures: now uses getFeatureDistance for all types ---
+
+    test('findNearestFeatures: Polygon features use boundary distance', () => {
+      const config = {
+        geometryType: 'Polygon',
+        nearestCount: 2,
+        resultUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeFindNearestFeatures(drawnLineGeom, config, fc(polygonNearby, polygonFar));
+      assertEqual(result.length, 2, 'Should find 2 features');
+      assertEqual(result[0].feature.properties.NAME, 'Near Park', 'Nearest should be Near Park');
+      assert(result[0].distance < result[1].distance, 'Near Park should be closer than Far Park');
+    });
+
+    test('findNearestFeatures: LineString features', () => {
+      const config = {
+        geometryType: 'LineString',
+        nearestCount: 2,
+        resultUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeFindNearestFeatures(drawnLineGeom, config, fc(lineParallel, lineFar));
+      assertEqual(result.length, 2, 'Should find 2 features');
+      assertEqual(result[0].feature.properties.NAME, 'Parallel Route', 'Nearest should be Parallel Route');
+    });
+
+    test('findNearestFeatures: maxDistance filters correctly', () => {
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 5,
+        maxDistance: 1000,
+        resultUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeFindNearestFeatures(drawnLineGeom, config, fc(pointNearby, pointFar));
+      assertEqual(result.length, 1, 'Should only return features within maxDistance');
+    });
+
+    // --- measureIntersectedArea: Polygon and MultiPolygon ---
+
+    test('measureIntersectedArea: Polygon feature returns area', () => {
+      const config = {
+        geometryType: 'Polygon',
+        bufferDistance: 500,
+        bufferUnit: 'feet',
+        resultUnit: 'acres',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeMeasureIntersectedArea(drawnLineGeom, config, fc(polygonNearby, polygonFar));
+      assertGreater(result.totalArea, 0, 'Total area should be > 0');
+      assertEqual(result.features.length, 1, 'Should intersect 1 polygon');
+    });
+
+    test('measureIntersectedArea: MultiPolygon feature returns area', () => {
+      const config = {
+        geometryType: 'Polygon',
+        bufferDistance: 500,
+        bufferUnit: 'feet',
+        resultUnit: 'acres',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeMeasureIntersectedArea(drawnLineGeom, config, fc(multiPolygon));
+      assertGreater(result.totalArea, 0, 'MultiPolygon intersection area should be > 0');
+    });
+
+    // --- corridor methods: regression tests ---
+
+    test('listParallelFeatures: parallel line matches', () => {
+      const config = {
+        geometryType: 'LineString',
+        bufferDistance: 200,
+        minSharedLength: 300,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeListParallelFeatures(drawnLineGeom, config, fc(lineParallel, linePerpendicular, lineFar));
+      assertEqual(result.length, 1, 'Should match 1 parallel feature');
+      assertEqual(result[0].properties._displayName, 'Parallel Route', 'Should be Parallel Route');
+    });
+
+    test('listParallelFeatures: MultiLineString works', () => {
+      const config = {
+        geometryType: 'LineString',
+        bufferDistance: 200,
+        minSharedLength: 300,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeListParallelFeatures(drawnLineGeom, config, fc(multiLine));
+      assertEqual(result.length, 1, 'Should match MultiLineString feature');
+    });
+
+    test('listParallelFeatures: Point drawn geometry still works', () => {
+      const config = {
+        geometryType: 'LineString',
+        bufferDistance: 500,
+        minSharedLength: 0,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeListParallelFeatures(drawnPointGeom, config, fc(lineParallel, lineFar));
+      assertEqual(result.length, 1, 'Point drawn geometry should find nearby line');
+    });
+
+    test('measureProjectByCategory: LineString drawn geometry', () => {
+      const config = {
+        geometryType: 'LineString',
+        bufferDistance: 200,
+        minSharedLength: 100,
+        bufferUnit: 'feet',
+        resultUnit: 'feet',
+        statusField: 'STATUS',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeMeasureProjectByCategory(drawnLineGeom, config, fc(lineParallel, lineFar));
+      assertGreater(result.total, 0, 'Should have total length > 0');
+      assert('Good' in result.breakdown, 'Should have Good status in breakdown');
+    });
+
+    test('measureProjectByCategory: Point drawn geometry', () => {
+      const config = {
+        geometryType: 'LineString',
+        bufferDistance: 500,
+        minSharedLength: 0,
+        bufferUnit: 'feet',
+        resultUnit: 'feet',
+        statusField: 'STATUS',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeMeasureProjectByCategory(drawnPointGeom, config, fc(lineParallel, lineFar));
+      assertGreater(result.total, 0, 'Point drawn geometry should measure nearby features');
+    });
+
+    test('averageParallelValue: LineString drawn geometry', () => {
+      const config = {
+        geometryType: 'LineString',
+        bufferDistance: 200,
+        minSharedLength: 100,
+        bufferUnit: 'feet',
+        averageField: 'SPEED',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeAverageParallelValue(drawnLineGeom, config, fc(lineParallel, lineFar));
+      assert(result.avg !== null, 'Average should not be null');
+      assertEqual(result.avg, 35, 'Average speed should be 35 (only parallel matches)');
+    });
+
+    test('averageParallelValue: Point drawn geometry', () => {
+      const config = {
+        geometryType: 'LineString',
+        bufferDistance: 500,
+        minSharedLength: 0,
+        bufferUnit: 'feet',
+        averageField: 'SPEED',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeAverageParallelValue(drawnPointGeom, config, fc(lineParallel, lineFar));
+      assert(result.avg !== null, 'Average should not be null for point draw');
+    });
+
+    // ============================================
+    // SECTION 3: NORMALIZETOLINESTRINGS
+    // ============================================
+
+    test('normalizeToLineStrings: LineString → array of 1', () => {
+      const result = normalizeToLineStrings(lineParallel);
+      assertEqual(result.length, 1, 'Should return 1 LineString');
+    });
+
+    test('normalizeToLineStrings: MultiLineString → array of N', () => {
+      const result = normalizeToLineStrings(multiLine);
+      assertEqual(result.length, 2, 'Should return 2 LineStrings from MultiLineString');
+    });
+
+    test('normalizeToLineStrings: Point → empty array', () => {
+      const result = normalizeToLineStrings(pointNearby);
+      assertEqual(result.length, 0, 'Should return empty array for Point');
+    });
+
+    test('normalizeToLineStrings: Polygon → empty array', () => {
+      const result = normalizeToLineStrings(polygonNearby);
+      assertEqual(result.length, 0, 'Should return empty array for Polygon');
+    });
+
+    // ============================================
+    // SECTION 4: EDGE CASES
+    // ============================================
+
+    test('countByCategory: empty FeatureCollection → zero total', () => {
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeCountByCategory(drawnLineGeom, config, fc());
+      assertEqual(result.total, 0, 'Empty collection should return 0');
+    });
+
+    test('findNearestFeatures: empty FeatureCollection → empty array', () => {
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 3,
+        resultUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeFindNearestFeatures(drawnLineGeom, config, fc());
+      assertEqual(result.length, 0, 'Empty collection should return empty array');
+    });
+
+    test('measureIntersectedArea: non-polygon features → 0 area', () => {
+      const config = {
+        geometryType: 'Point',
+        bufferDistance: 500,
+        bufferUnit: 'feet',
+        resultUnit: 'acres',
+        properties: { displayField: 'NAME' }
+      };
+      // Pass point features to an area method — should return 0
+      const result = analyzeMeasureIntersectedArea(drawnLineGeom, config, fc(pointNearby));
+      assertEqual(result.totalArea, 0, 'Point features should produce 0 area');
+    });
+
+    test('listParallelFeatures: Polygon features → no matches (corridor needs lines)', () => {
+      const config = {
+        geometryType: 'Polygon',
+        bufferDistance: 2000,
+        minSharedLength: 0,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME' }
+      };
+      const result = analyzeListParallelFeatures(drawnLineGeom, config, fc(polygonNearby));
+      assertEqual(result.length, 0, 'Polygon features should not match corridor methods');
+    });
+
+    test('analysisFilter: respects filter on hasNearbyFeatures', () => {
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        analysisFilter: { field: 'TYPE', value: 'B', operator: '=' },
+        properties: { displayField: 'NAME' }
+      };
+      // pointNearby has TYPE=A, so it should be filtered out
+      const result = analyzeHasNearbyFeatures(drawnLineGeom, config, fc(pointNearby));
+      assert(result.detected === false, 'Filter should exclude TYPE=A');
+    });
+
+    // --- additionalFields: empty array regression tests ---
+
+    test('listParallelFeatures: empty additionalFields → results without error', () => {
+      const config = normalizeConfig({
+        geometryType: 'LineString',
+        bufferDistance: 200,
+        minSharedLength: 300,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME', additionalFields: [] }
+      });
+      const result = analyzeListParallelFeatures(drawnLineGeom, config, fc(lineParallel));
+      assertEqual(result.length, 1, 'Should find 1 parallel feature with empty additionalFields');
+    });
+
+    test('listNearbyFeatures: empty additionalFields → results without error', () => {
+      const config = normalizeConfig({
+        geometryType: 'Point',
+        proximityBuffer: 500,
+        bufferUnit: 'feet',
+        properties: { displayField: 'NAME', additionalFields: [] }
+      });
+      const result = analyzeListNearbyFeatures(drawnLineGeom, config, fc(pointNearby, pointFar));
+      assertEqual(result.length, 1, 'Should find 1 nearby point with empty additionalFields');
+    });
+
+    test('sumNearbyValues: works regardless of additionalFields value', () => {
+      const config = normalizeConfig({
+        geometryType: 'Polygon',
+        proximityBuffer: 2000,
+        bufferUnit: 'feet',
+        sumField: 'AREA_ACRES',
+        properties: { displayField: 'NAME', additionalFields: [] }
+      });
+      const result = analyzeSumNearbyValues(drawnLineGeom, config, fc(polygonNearby, polygonFar));
+      assertEqual(result.sum, 32, 'Should sum nearby polygon value');
+      assertEqual(result.total, 1, 'Should match 1 feature');
+    });
+
+    // ============================================
+    // RUN
+    // ============================================
+    runTests();
+  </script>
+</body>
+</html>

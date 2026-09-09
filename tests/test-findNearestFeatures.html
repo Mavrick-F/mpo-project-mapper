@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>findNearestFeatures Analysis Tests</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #0066CC;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+    .test {
+      background: white;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 5px;
+      border-left: 4px solid #ccc;
+    }
+    .test.pass {
+      border-left-color: #228B22;
+    }
+    .test.fail {
+      border-left-color: #DC143C;
+      background: #ffefef;
+    }
+    .test-name {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .test-result {
+      font-size: 0.9em;
+      color: #666;
+    }
+    .summary {
+      background: #e8f4f8;
+      padding: 20px;
+      border-radius: 5px;
+      margin: 20px 0;
+      font-size: 1.1em;
+    }
+    .summary.all-pass {
+      background: #d4edda;
+      border: 2px solid #28a745;
+    }
+    .summary.has-fail {
+      background: #f8d7da;
+      border: 2px solid #dc3545;
+    }
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>findNearestFeatures Analysis Tests</h1>
+  <p>Tests for the new <code>findNearestFeatures</code> analysis method that finds the nearest X features to a project and returns distance in feet.</p>
+
+  <div id="results"></div>
+
+  <!-- Load dependencies -->
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <script>
+    // Test results container
+    const tests = [];
+    const resultsDiv = document.getElementById('results');
+
+    // ============================================
+    // HELPER FUNCTIONS (copied from analysis.js)
+    // ============================================
+    function hasValidGeometry(feature) {
+      return feature &&
+             feature.geometry &&
+             feature.geometry.coordinates &&
+             Array.isArray(feature.geometry.coordinates) &&
+             feature.geometry.coordinates.length > 0;
+    }
+
+    // ============================================
+    // IMPLEMENTATION OF analyzeFindNearestFeatures
+    // ============================================
+    function analyzeFindNearestFeatures(drawnGeometry, datasetConfig, geoJsonData) {
+      const featuresWithDistance = [];
+
+      try {
+        const geometry = drawnGeometry.type === 'Feature'
+          ? drawnGeometry.geometry
+          : drawnGeometry;
+
+        const drawnCentroid = turf.centroid(geometry);
+
+        geoJsonData.features.forEach(feature => {
+          try {
+            if (!hasValidGeometry(feature)) return;
+
+            let distance = 0;
+
+            if (datasetConfig.geometryType === 'Point') {
+              distance = turf.distance(drawnCentroid, feature, { units: 'feet' });
+            } else if (datasetConfig.geometryType === 'LineString') {
+              distance = turf.pointToLineDistance(drawnCentroid, feature, { units: 'feet' });
+            } else if (datasetConfig.geometryType === 'Polygon') {
+              const featureCentroid = turf.centroid(feature);
+              distance = turf.distance(drawnCentroid, featureCentroid, { units: 'feet' });
+            }
+
+            featuresWithDistance.push({
+              feature: {
+                type: 'Feature',
+                geometry: feature.geometry,
+                properties: { ...feature.properties }
+              },
+              distance: distance
+            });
+
+          } catch (error) {
+            console.warn('Error calculating distance for feature:', error);
+          }
+        });
+
+        // Sort by distance (ascending)
+        featuresWithDistance.sort((a, b) => a.distance - b.distance);
+
+        // Filter by max distance if specified
+        let filteredFeatures = featuresWithDistance;
+        if (datasetConfig.maxDistance && datasetConfig.maxDistance > 0) {
+          filteredFeatures = featuresWithDistance.filter(f => f.distance <= datasetConfig.maxDistance);
+        }
+
+        // Take the nearest N features
+        const nearestCount = datasetConfig.nearestCount || 1;
+        const nearest = filteredFeatures.slice(0, nearestCount);
+
+        return nearest;
+
+      } catch (error) {
+        console.error('Error in findNearestFeatures analysis:', error);
+        return [];
+      }
+    }
+
+    // ============================================
+    // TEST CASES
+    // ============================================
+
+    // Test 1: Find nearest 3 points from a drawn line
+    (() => {
+      const drawnLine = turf.lineString([
+        [-90.0, 35.0],
+        [-90.0, 35.01]
+      ]);
+
+      const points = turf.featureCollection([
+        turf.point([-90.0, 35.005], { Name: 'Point A' }),      // On the line, ~0 ft away
+        turf.point([-90.001, 35.005], { Name: 'Point B' }),    // ~90m = ~295 ft away
+        turf.point([-90.002, 35.005], { Name: 'Point C' }),    // ~180m = ~590 ft away
+        turf.point([-90.01, 35.005], { Name: 'Point D' }),     // ~900m = ~2950 ft away
+        turf.point([-90.1, 35.0], { Name: 'Point E' })         // Very far away
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 3
+      };
+
+      const result = analyzeFindNearestFeatures(drawnLine, config, points);
+
+      const pass = result.length === 3 &&
+                   result[0].feature.properties.Name === 'Point A' &&
+                   result[1].feature.properties.Name === 'Point B' &&
+                   result[2].feature.properties.Name === 'Point C' &&
+                   result[0].distance < result[1].distance &&
+                   result[1].distance < result[2].distance;
+
+      tests.push({
+        name: 'Find 3 nearest points from line, sorted by distance',
+        pass: pass,
+        details: pass
+          ? `Correctly found Point A (${Math.round(result[0].distance)} ft), Point B (${Math.round(result[1].distance)} ft), Point C (${Math.round(result[2].distance)} ft)`
+          : `Expected Point A, B, C in order, got ${result.map(r => r.feature.properties.Name).join(', ')}`
+      });
+    })();
+
+    // Test 2: Find single nearest LineString feature
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const roads = turf.featureCollection([
+        turf.lineString([[-90.0001, 35.0001], [-89.9999, 35.0001]], { Road: 'Main St' }),     // Very close
+        turf.lineString([[-90.002, 35.002], [-89.998, 35.002]], { Road: 'Second Ave' }),      // ~300m away
+        turf.lineString([[-90.01, 35.01], [-89.99, 35.01]], { Road: 'Third Blvd' })           // ~1600m away
+      ]);
+
+      const config = {
+        geometryType: 'LineString',
+        nearestCount: 1
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, roads);
+
+      tests.push({
+        name: 'Find single nearest LineString (road)',
+        pass: result.length === 1 && result[0].feature.properties.Road === 'Main St',
+        details: `Expected 1 result (Main St), got ${result.length} results: ${result.map(r => r.feature.properties.Road).join(', ')}`
+      });
+    })();
+
+    // Test 3: Find nearest 2 polygon features
+    (() => {
+      const drawnLine = turf.lineString([
+        [-90.0, 35.0],
+        [-90.0, 35.01]
+      ]);
+
+      const zones = turf.featureCollection([
+        turf.polygon([[ // Close polygon - centroid at [-90.0005, 35.005], very close to line centroid
+          [-90.001, 35.006],
+          [-90.001, 35.004],
+          [-90.0, 35.004],
+          [-90.0, 35.006],
+          [-90.001, 35.006]
+        ]], { Zone: 'Zone A' }),
+        turf.polygon([[ // Medium distance polygon - centroid at [-90.004, 35.004]
+          [-90.005, 35.005],
+          [-90.005, 35.003],
+          [-90.003, 35.003],
+          [-90.003, 35.005],
+          [-90.005, 35.005]
+        ]], { Zone: 'Zone B' }),
+        turf.polygon([[ // Far polygon
+          [-90.1, 35.1],
+          [-90.1, 35.09],
+          [-90.09, 35.09],
+          [-90.09, 35.1],
+          [-90.1, 35.1]
+        ]], { Zone: 'Zone C' })
+      ]);
+
+      const config = {
+        geometryType: 'Polygon',
+        nearestCount: 2
+      };
+
+      const result = analyzeFindNearestFeatures(drawnLine, config, zones);
+
+      tests.push({
+        name: 'Find 2 nearest polygons sorted by distance',
+        pass: result.length === 2 &&
+              result[0].feature.properties.Zone === 'Zone A' &&
+              result[1].feature.properties.Zone === 'Zone B',
+        details: `Expected Zone A and Zone B, got ${result.map(r => r.feature.properties.Zone).join(', ')}`
+      });
+    })();
+
+    // Test 4: Request more features than exist
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.001, 35.001], { ID: 1 }),
+        turf.point([-90.002, 35.002], { ID: 2 })
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 10  // Request 10, but only 2 exist
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, features);
+
+      tests.push({
+        name: 'Request more features than exist (should return all available)',
+        pass: result.length === 2,
+        details: `Requested 10 features, expected 2 (all available), got ${result.length}`
+      });
+    })();
+
+    // Test 5: Empty dataset returns empty array
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const emptyData = turf.featureCollection([]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 3
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, emptyData);
+
+      tests.push({
+        name: 'Empty dataset returns empty array',
+        pass: result.length === 0,
+        details: `Expected 0 results, got ${result.length}`
+      });
+    })();
+
+    // Test 6: Default to 1 if nearestCount not specified
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.001, 35.001], { ID: 'A' }),
+        turf.point([-90.002, 35.002], { ID: 'B' }),
+        turf.point([-90.003, 35.003], { ID: 'C' })
+      ]);
+
+      const config = {
+        geometryType: 'Point'
+        // nearestCount not specified - should default to 1
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, features);
+
+      tests.push({
+        name: 'Default to 1 feature if nearestCount not specified',
+        pass: result.length === 1 && result[0].feature.properties.ID === 'A',
+        details: `Expected 1 result (ID: A), got ${result.length} results`
+      });
+    })();
+
+    // Test 7: Distance values are positive numbers
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.001, 35.001], { ID: 1 }),
+        turf.point([-90.002, 35.002], { ID: 2 }),
+        turf.point([-90.003, 35.003], { ID: 3 })
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 3
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, features);
+
+      const allPositive = result.every(r => r.distance > 0 && typeof r.distance === 'number');
+
+      tests.push({
+        name: 'All distance values are positive numbers',
+        pass: allPositive,
+        details: `Expected all positive numbers, got: ${result.map(r => r.distance.toFixed(2)).join(', ')} ft`
+      });
+    })();
+
+    // Test 8: Results maintain feature geometry and properties
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.001, 35.001], { Name: 'Hospital A', Beds: 200 }),
+        turf.point([-90.002, 35.002], { Name: 'Hospital B', Beds: 150 })
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 2
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, features);
+
+      const hasCorrectStructure = result.every(r =>
+        r.feature &&
+        r.feature.type === 'Feature' &&
+        r.feature.geometry &&
+        r.feature.properties &&
+        typeof r.distance === 'number'
+      );
+
+      const firstFeatureCorrect = result[0].feature.properties.Name === 'Hospital A' &&
+                                  result[0].feature.properties.Beds === 200;
+
+      tests.push({
+        name: 'Results maintain feature geometry and properties',
+        pass: hasCorrectStructure && firstFeatureCorrect,
+        details: hasCorrectStructure && firstFeatureCorrect
+          ? `Correctly preserved all feature properties and geometry`
+          : `Structure or properties not preserved correctly`
+      });
+    })();
+
+    // Test 9: maxDistance filters out distant features
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.001, 35.001], { Name: 'Close Stop' }),    // ~500 ft
+        turf.point([-90.005, 35.005], { Name: 'Medium Stop' }),   // ~2500 ft
+        turf.point([-90.01, 35.01], { Name: 'Far Stop' })         // ~5000 ft
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 5,
+        maxDistance: 3000  // 3000 ft max - should exclude Far Stop
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, features);
+
+      tests.push({
+        name: 'maxDistance filters out features beyond limit',
+        pass: result.length === 2 &&
+              result.every(r => r.distance <= 3000) &&
+              result[0].feature.properties.Name === 'Close Stop' &&
+              result[1].feature.properties.Name === 'Medium Stop',
+        details: `Expected 2 results within 3000ft (Close Stop, Medium Stop), got ${result.length}: ${result.map(r => `${r.feature.properties.Name} (${Math.round(r.distance)}ft)`).join(', ')}`
+      });
+    })();
+
+    // Test 10: maxDistance with no features within range returns empty
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.1, 35.1], { Name: 'Very Far Stop' }),
+        turf.point([-90.2, 35.2], { Name: 'Extremely Far Stop' })
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 3,
+        maxDistance: 1000  // 1000 ft max - all features too far
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, features);
+
+      tests.push({
+        name: 'maxDistance returns empty when no features within range',
+        pass: result.length === 0,
+        details: `Expected 0 results (all beyond 1000ft), got ${result.length}`
+      });
+    })();
+
+    // Test 11: No maxDistance specified includes all features
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.001, 35.001], { ID: 1 }),
+        turf.point([-90.1, 35.1], { ID: 2 }),      // Very far but should be included
+        turf.point([-90.2, 35.2], { ID: 3 })       // Extremely far but should be included
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        nearestCount: 3
+        // No maxDistance specified
+      };
+
+      const result = analyzeFindNearestFeatures(drawnPoint, config, features);
+
+      tests.push({
+        name: 'No maxDistance specified returns all nearest N features regardless of distance',
+        pass: result.length === 3,
+        details: `Expected 3 results (no distance limit), got ${result.length}`
+      });
+    })();
+
+    // ============================================
+    // RENDER RESULTS
+    // ============================================
+    function renderResults() {
+      const passCount = tests.filter(t => t.pass).length;
+      const failCount = tests.filter(t => !t.pass).length;
+      const totalCount = tests.length;
+
+      let html = `<div class="summary ${failCount === 0 ? 'all-pass' : 'has-fail'}">`;
+      html += `<strong>Test Summary:</strong> ${passCount}/${totalCount} passed`;
+      if (failCount > 0) {
+        html += ` (<span style="color: #dc3545;">${failCount} failed</span>)`;
+      } else {
+        html += ` <span style="color: #28a745;">✓ All tests passed!</span>`;
+      }
+      html += `</div>`;
+
+      html += '<h2>Test Results</h2>';
+
+      tests.forEach((test, index) => {
+        html += `<div class="test ${test.pass ? 'pass' : 'fail'}">`;
+        html += `<div class="test-name">${test.pass ? '✓' : '✗'} Test ${index + 1}: ${test.name}</div>`;
+        html += `<div class="test-result">${test.details}</div>`;
+        html += `</div>`;
+      });
+
+      resultsDiv.innerHTML = html;
+
+      // Also log to console
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`findNearestFeatures Test Results: ${passCount}/${totalCount} passed`);
+      console.log(`${'='.repeat(60)}\n`);
+      tests.forEach((test, index) => {
+        console.log(`${test.pass ? '✓' : '✗'} Test ${index + 1}: ${test.name}`);
+        if (!test.pass) {
+          console.log(`  └─ ${test.details}`);
+        }
+      });
+    }
+
+    // Run tests when page loads
+    renderResults();
+  </script>
+</body>
+</html>

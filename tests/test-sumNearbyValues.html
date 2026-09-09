@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>sumNearbyValues Analysis Tests</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #0066CC;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+    .test {
+      background: white;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 5px;
+      border-left: 4px solid #ccc;
+    }
+    .test.pass {
+      border-left-color: #228B22;
+    }
+    .test.fail {
+      border-left-color: #DC143C;
+      background: #ffefef;
+    }
+    .test-name {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .test-result {
+      font-size: 0.9em;
+      color: #666;
+    }
+    .summary {
+      background: #e8f4f8;
+      padding: 20px;
+      border-radius: 5px;
+      margin: 20px 0;
+      font-size: 1.1em;
+    }
+    .summary.all-pass {
+      background: #d4edda;
+      border: 2px solid #28a745;
+    }
+    .summary.has-fail {
+      background: #f8d7da;
+      border: 2px solid #dc3545;
+    }
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>sumNearbyValues Analysis Tests</h1>
+  <p>Tests for the new <code>sumNearbyValues</code> analysis method that sums numeric attributes from features within a proximity buffer.</p>
+
+  <div id="results"></div>
+
+  <!-- Load dependencies -->
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <script>
+    // Test results container
+    const tests = [];
+    const resultsDiv = document.getElementById('results');
+
+    // ============================================
+    // HELPER FUNCTIONS (copied from analysis.js)
+    // ============================================
+    function hasValidGeometry(feature) {
+      return feature &&
+             feature.geometry &&
+             feature.geometry.coordinates &&
+             Array.isArray(feature.geometry.coordinates) &&
+             feature.geometry.coordinates.length > 0;
+    }
+
+    // ============================================
+    // IMPLEMENTATION OF analyzeSumNearbyValues
+    // ============================================
+    function analyzeSumNearbyValues(drawnGeometry, datasetConfig, geoJsonData) {
+      const matchedFeatures = [];
+      let totalSum = 0;
+
+      try {
+        const geometry = drawnGeometry.type === 'Feature'
+          ? drawnGeometry.geometry
+          : drawnGeometry;
+
+        const buffered = turf.buffer(geometry, datasetConfig.proximityBuffer, {
+          units: 'feet'
+        });
+
+        geoJsonData.features.forEach(feature => {
+          try {
+            if (!hasValidGeometry(feature)) return;
+
+            // Apply analysis filter if configured
+            if (datasetConfig.analysisFilter) {
+              const filterField = datasetConfig.analysisFilter.field;
+              const filterValue = datasetConfig.analysisFilter.value;
+              const filterOperator = datasetConfig.analysisFilter.operator;
+              const featureValue = feature.properties[filterField];
+
+              let matchesFilter = false;
+              if (filterOperator === '=') {
+                matchesFilter = featureValue === filterValue;
+              } else if (filterOperator === '!=') {
+                matchesFilter = featureValue !== filterValue;
+              }
+
+              if (!matchesFilter) {
+                return;
+              }
+            }
+
+            let isNearby = false;
+
+            if (datasetConfig.geometryType === 'Point') {
+              isNearby = turf.booleanPointInPolygon(feature, buffered);
+            } else if (datasetConfig.geometryType === 'LineString') {
+              isNearby = turf.booleanIntersects(feature, buffered);
+            } else if (datasetConfig.geometryType === 'Polygon') {
+              isNearby = turf.booleanIntersects(feature, buffered);
+            }
+
+            if (isNearby) {
+              matchedFeatures.push({
+                type: 'Feature',
+                geometry: feature.geometry,
+                properties: { ...feature.properties }
+              });
+
+              if (datasetConfig.sumField) {
+                const value = parseFloat(feature.properties[datasetConfig.sumField]) || 0;
+                totalSum += value;
+              }
+            }
+          } catch (error) {
+            console.warn('Error checking proximity for sum:', error);
+          }
+        });
+
+      } catch (error) {
+        console.error('Error in sumNearbyValues analysis:', error);
+      }
+
+      return {
+        total: matchedFeatures.length,
+        sum: totalSum,
+        features: matchedFeatures
+      };
+    }
+
+    // ============================================
+    // TEST CASES
+    // ============================================
+
+    // Test 1: Sum values from point features within buffer
+    (() => {
+      const drawnLine = turf.lineString([
+        [-90.0, 35.0],
+        [-90.0, 35.01]
+      ]);
+
+      const crashes = turf.featureCollection([
+        turf.point([-90.0, 35.005], { Fatality_C: 2, Severity: 'Fatal' }),
+        turf.point([-90.0001, 35.005], { Fatality_C: 1, Severity: 'Fatal' }),
+        turf.point([-90.0002, 35.005], { Fatality_C: 3, Severity: 'Fatal' }),
+        turf.point([-90.1, 35.0], { Fatality_C: 5, Severity: 'Fatal' }) // Far away, should not be included
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 200,
+        sumField: 'Fatality_C'
+      };
+
+      const result = analyzeSumNearbyValues(drawnLine, config, crashes);
+
+      tests.push({
+        name: 'Sum fatalities from crash points within 200ft buffer',
+        pass: result.total === 3 && result.sum === 6,
+        details: `Expected 3 features with sum of 6, got ${result.total} features with sum of ${result.sum}`
+      });
+    })();
+
+    // Test 2: Sum values from polygon features
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const censusTracts = turf.featureCollection([
+        turf.polygon([[
+          [-90.001, 35.001],
+          [-90.001, 34.999],
+          [-89.999, 34.999],
+          [-89.999, 35.001],
+          [-90.001, 35.001]
+        ]], { GEOID: '001', TotalJobs: 500 }),
+        turf.polygon([[
+          [-90.002, 35.002],
+          [-90.002, 35.000],
+          [-90.000, 35.000],
+          [-90.000, 35.002],
+          [-90.002, 35.002]
+        ]], { GEOID: '002', TotalJobs: 750 }),
+        turf.polygon([[
+          [-90.1, 35.1],
+          [-90.1, 35.09],
+          [-90.09, 35.09],
+          [-90.09, 35.1],
+          [-90.1, 35.1]
+        ]], { GEOID: '003', TotalJobs: 1000 }) // Far away
+      ]);
+
+      const config = {
+        geometryType: 'Polygon',
+        proximityBuffer: 500,
+        sumField: 'TotalJobs'
+      };
+
+      const result = analyzeSumNearbyValues(drawnPoint, config, censusTracts);
+
+      tests.push({
+        name: 'Sum jobs from census tract polygons within 500ft buffer',
+        pass: result.total === 2 && result.sum === 1250,
+        details: `Expected 2 features with sum of 1250, got ${result.total} features with sum of ${result.sum}`
+      });
+    })();
+
+    // Test 3: Sum with analysis filter (only specific category)
+    (() => {
+      const drawnLine = turf.lineString([
+        [-90.0, 35.0],
+        [-90.0, 35.01]
+      ]);
+
+      const crashes = turf.featureCollection([
+        turf.point([-90.0, 35.005], { Injured_Co: 3, Severity: 'Suspected Serious Injury' }),
+        turf.point([-90.0001, 35.005], { Injured_Co: 2, Severity: 'Suspected Serious Injury' }),
+        turf.point([-90.0002, 35.005], { Injured_Co: 1, Severity: 'Fatal' }), // Different severity, should be filtered out
+        turf.point([-90.0003, 35.005], { Injured_Co: 4, Severity: 'Suspected Serious Injury' })
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 200,
+        sumField: 'Injured_Co',
+        analysisFilter: {
+          field: 'Severity',
+          operator: '=',
+          value: 'Suspected Serious Injury'
+        }
+      };
+
+      const result = analyzeSumNearbyValues(drawnLine, config, crashes);
+
+      tests.push({
+        name: 'Sum injuries with severity filter (only "Suspected Serious Injury")',
+        pass: result.total === 3 && result.sum === 9,
+        details: `Expected 3 features with sum of 9, got ${result.total} features with sum of ${result.sum}. Filter should exclude Fatal crashes.`
+      });
+    })();
+
+    // Test 4: Empty result when no features in buffer
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const crashes = turf.featureCollection([
+        turf.point([-90.1, 35.0], { Fatality_C: 2, Severity: 'Fatal' }),
+        turf.point([-90.2, 35.0], { Fatality_C: 1, Severity: 'Fatal' })
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 100,
+        sumField: 'Fatality_C'
+      };
+
+      const result = analyzeSumNearbyValues(drawnPoint, config, crashes);
+
+      tests.push({
+        name: 'Empty result when no features within buffer',
+        pass: result.total === 0 && result.sum === 0,
+        details: `Expected 0 features with sum of 0, got ${result.total} features with sum of ${result.sum}`
+      });
+    })();
+
+    // Test 5: Handle zero and null values gracefully
+    (() => {
+      const drawnLine = turf.lineString([
+        [-90.0, 35.0],
+        [-90.0, 35.01]
+      ]);
+
+      const crashes = turf.featureCollection([
+        turf.point([-90.0, 35.005], { Fatality_C: 2, Severity: 'Fatal' }),
+        turf.point([-90.0001, 35.005], { Fatality_C: 0, Severity: 'Fatal' }), // Zero value
+        turf.point([-90.0002, 35.005], { Fatality_C: null, Severity: 'Fatal' }), // Null value
+        turf.point([-90.0003, 35.005], { Severity: 'Fatal' }) // Missing field
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 200,
+        sumField: 'Fatality_C'
+      };
+
+      const result = analyzeSumNearbyValues(drawnLine, config, crashes);
+
+      tests.push({
+        name: 'Handle zero, null, and missing values gracefully',
+        pass: result.total === 4 && result.sum === 2,
+        details: `Expected 4 features with sum of 2 (only counting the first feature), got ${result.total} features with sum of ${result.sum}`
+      });
+    })();
+
+    // Test 6: Sum from LineString features
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const roads = turf.featureCollection([
+        turf.lineString([[-90.0001, 35.0001], [-89.9999, 35.0001]], { AADT: 5000 }), // Very close - intersects buffer
+        turf.lineString([[-90.0001, 34.9999], [-89.9999, 34.9999]], { AADT: 3000 }), // Very close - intersects buffer
+        turf.lineString([[-90.1, 35.1], [-90.09, 35.1]], { AADT: 2000 }) // Far away - outside buffer
+      ]);
+
+      const config = {
+        geometryType: 'LineString',
+        proximityBuffer: 500, // Increased to 500 feet to ensure roads are captured
+        sumField: 'AADT'
+      };
+
+      const result = analyzeSumNearbyValues(drawnPoint, config, roads);
+
+      tests.push({
+        name: 'Sum traffic volumes from road LineString features',
+        pass: result.total === 2 && result.sum === 8000,
+        details: `Expected 2 features with sum of 8000, got ${result.total} features with sum of ${result.sum}`
+      });
+    })();
+
+    // Test 7: Large buffer captures all features
+    (() => {
+      const drawnPoint = turf.point([-90.0, 35.0]);
+
+      const features = turf.featureCollection([
+        turf.point([-90.005, 35.005], { Value: 10 }), // ~800m away
+        turf.point([-90.01, 35.01], { Value: 20 }),   // ~1600m away
+        turf.point([-90.015, 35.015], { Value: 30 })  // ~2400m away
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 10000, // 10000 feet = ~3048 meters - captures all features
+        sumField: 'Value'
+      };
+
+      const result = analyzeSumNearbyValues(drawnPoint, config, features);
+
+      tests.push({
+        name: 'Large buffer captures all features',
+        pass: result.total === 3 && result.sum === 60,
+        details: `Expected 3 features with sum of 60, got ${result.total} features with sum of ${result.sum}`
+      });
+    })();
+
+    // Test 8: Decimal values are summed correctly
+    (() => {
+      const drawnLine = turf.lineString([
+        [-90.0, 35.0],
+        [-90.0, 35.01]
+      ]);
+
+      const tracts = turf.featureCollection([
+        turf.point([-90.0, 35.005], { PopDensity: 123.45 }),
+        turf.point([-90.0001, 35.005], { PopDensity: 678.90 }),
+        turf.point([-90.0002, 35.005], { PopDensity: 234.56 })
+      ]);
+
+      const config = {
+        geometryType: 'Point',
+        proximityBuffer: 200,
+        sumField: 'PopDensity'
+      };
+
+      const result = analyzeSumNearbyValues(drawnLine, config, tracts);
+
+      const expectedSum = 123.45 + 678.90 + 234.56;
+      const tolerance = 0.01;
+
+      tests.push({
+        name: 'Decimal values are summed correctly',
+        pass: result.total === 3 && Math.abs(result.sum - expectedSum) < tolerance,
+        details: `Expected 3 features with sum of ${expectedSum.toFixed(2)}, got ${result.total} features with sum of ${result.sum.toFixed(2)}`
+      });
+    })();
+
+    // ============================================
+    // RENDER RESULTS
+    // ============================================
+    function renderResults() {
+      const passCount = tests.filter(t => t.pass).length;
+      const failCount = tests.filter(t => !t.pass).length;
+      const totalCount = tests.length;
+
+      let html = `<div class="summary ${failCount === 0 ? 'all-pass' : 'has-fail'}">`;
+      html += `<strong>Test Summary:</strong> ${passCount}/${totalCount} passed`;
+      if (failCount > 0) {
+        html += ` (<span style="color: #dc3545;">${failCount} failed</span>)`;
+      } else {
+        html += ` <span style="color: #28a745;">✓ All tests passed!</span>`;
+      }
+      html += `</div>`;
+
+      html += '<h2>Test Results</h2>';
+
+      tests.forEach((test, index) => {
+        html += `<div class="test ${test.pass ? 'pass' : 'fail'}">`;
+        html += `<div class="test-name">${test.pass ? '✓' : '✗'} Test ${index + 1}: ${test.name}</div>`;
+        html += `<div class="test-result">${test.details}</div>`;
+        html += `</div>`;
+      });
+
+      resultsDiv.innerHTML = html;
+
+      // Also log to console
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`sumNearbyValues Test Results: ${passCount}/${totalCount} passed`);
+      console.log(`${'='.repeat(60)}\n`);
+      tests.forEach((test, index) => {
+        console.log(`${test.pass ? '✓' : '✗'} Test ${index + 1}: ${test.name}`);
+        if (!test.pass) {
+          console.log(`  └─ ${test.details}`);
+        }
+      });
+    }
+
+    // Run tests when page loads
+    renderResults();
+  </script>
+</body>
+</html>

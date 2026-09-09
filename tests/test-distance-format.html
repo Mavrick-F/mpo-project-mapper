@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Distance Format Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    .test { padding: 5px; }
+    .pass { color: green; }
+    .fail { color: red; }
+  </style>
+</head>
+<body>
+  <h2>Distance Formatting Test</h2>
+  <div id="results"></div>
+
+  <script>
+    // Copy of formatDistance function from map.js
+    function formatDistance(feet) {
+      const THRESHOLD = 528; // 0.1 miles
+
+      if (feet <= THRESHOLD) {
+        // Short distances: display in feet with comma separators
+        return `${Math.round(feet).toLocaleString('en-US')} ft`;
+      } else {
+        // Long distances: display in miles rounded to 1 decimal place
+        const miles = feet / 5280;
+        return `${miles.toFixed(1)} mi`;
+      }
+    }
+
+    // Test cases
+    const tests = [
+      { input: 100, expected: '100 ft', description: 'Short distance (100 ft)' },
+      { input: 528, expected: '528 ft', description: 'At threshold (528 ft)' },
+      { input: 529, expected: '0.1 mi', description: 'Just over threshold (529 ft)' },
+      { input: 1234, expected: '0.2 mi', description: 'Medium distance (1,234 ft)' },
+      { input: 5280, expected: '1.0 mi', description: 'Exactly 1 mile (5,280 ft)' },
+      { input: 10560, expected: '2.0 mi', description: 'Exactly 2 miles (10,560 ft)' },
+      { input: 13200, expected: '2.5 mi', description: 'Long distance (13,200 ft = 2.5 mi)' }
+    ];
+
+    const resultsDiv = document.getElementById('results');
+    let passCount = 0;
+    let failCount = 0;
+
+    tests.forEach(test => {
+      const result = formatDistance(test.input);
+      const pass = result === test.expected;
+      if (pass) passCount++;
+      else failCount++;
+
+      const div = document.createElement('div');
+      div.className = `test ${pass ? 'pass' : 'fail'}`;
+      div.innerHTML = `
+        ${pass ? '✓' : '✗'} ${test.description}<br>
+        &nbsp;&nbsp;Input: ${test.input.toLocaleString()} ft → Output: "${result}"
+        ${pass ? '' : `(Expected: "${test.expected}")`}
+      `;
+      resultsDiv.appendChild(div);
+    });
+
+    // Summary
+    const summary = document.createElement('div');
+    summary.style.marginTop = '20px';
+    summary.style.fontWeight = 'bold';
+    summary.innerHTML = `<br>Results: ${passCount} passed, ${failCount} failed`;
+    summary.className = failCount === 0 ? 'pass' : 'fail';
+    resultsDiv.appendChild(summary);
+  </script>
+</body>
+</html>

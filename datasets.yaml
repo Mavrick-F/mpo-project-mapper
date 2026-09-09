@@ -1,0 +1,562 @@
+# ============================================
+# DATASET CONFIGURATION FOR MPO PROJECT APPLICATION TOOL
+# ============================================
+# This file defines all datasets used in spatial analysis.
+# To add a new dataset: copy an example below, paste it, and change the values.
+# No other files need to be edited — just save and refresh the browser.
+#
+# IMPORTANT: Indentation matters in YAML. Use spaces, not tabs.
+# Each level of indentation must be consistent (2 spaces recommended).
+#
+# ============================================
+# GEOMETRY TYPES
+# ============================================
+#   Point      - Single coordinate locations (crashes, hospitals, bus stops)
+#   LineString - Road segments, routes, corridors
+#   Polygon    - Areas (zones, districts, wetlands)
+#
+# ============================================
+# ANALYSIS METHODS AND REQUIRED FIELDS
+# ============================================
+# Pick the method that matches what you want to know, then provide the fields it needs.
+#
+#  METHOD                    | WHAT IT DOES                                              | FEATURE GEOMETRY    | FIELDS REQUIRED
+#  --------------------------|-----------------------------------------------------------|---------------------|-------------------------------------------------
+#  listParallelFeatures      | Lines running alongside the project (roads, routes)       | LineString only     | bufferDistance, minSharedLength
+#  averageParallelValue      | Length-weighted average of a number from parallel lines   | LineString only     | bufferDistance, minSharedLength, averageField
+#  listIntersectingFeatures  | Areas/lines that overlap the project geometry             | Any                 | (none — uses direct geometry intersection)
+#  listNearbyFeatures        | Points, lines, or polygons within a set distance          | Any                 | proximityBuffer
+#  countByCategory           | Count nearby features, grouped by a field (e.g. severity) | Any                 | proximityBuffer, countByField (optional)
+#  hasNearbyFeatures         | Yes/No — does anything exist within the buffer?           | Any                 | proximityBuffer
+#  measureProjectByCategory  | Total project length broken down by a status field        | LineString only     | bufferDistance, minSharedLength, statusField
+#  measureIntersectedArea    | Area of polygon features that overlap the project         | Polygon only        | bufferDistance or proximityBuffer
+#  projectCoverage           | % of project that runs along a reference network          | LineString only     | bufferDistance
+#  sumNearbyValues           | Sum a numeric field from features within buffer            | Any                 | proximityBuffer, sumField
+#  findNearestFeatures       | Distance-ranked list of nearest features                  | Any                 | nearestCount, maxDistance (optional)
+#  measureNearbyArea         | Sum an area field from nearby polygons (acres, sq mi, etc) | Any                 | proximityBuffer, sumField, sumUnit (optional)
+#
+# ALL METHODS also require under properties:
+#   displayField  - The field name from your data file shown in results (case-sensitive)
+#
+# ============================================
+# RESULT STYLES  (controls how results are displayed in the panel and PDF)
+# ============================================
+#   list          - Bulleted list of matched feature names          (use with: listParallelFeatures, listIntersectingFeatures, listNearbyFeatures)
+#   count         - Total count with breakdown by category          (use with: countByCategory)
+#   binary        - Yes / No                                        (use with: hasNearbyFeatures)
+#   lengthByStatus - Length of project per status category           (use with: measureProjectByCategory)
+#   area          - Total area with list of features                (use with: measureIntersectedArea)
+#   percentage    - Percent of project covered                      (use with: projectCoverage)
+#   sum           - Numeric total (add sumUnit: 'acres' to label units) (use with: sumNearbyValues, measureNearbyArea)
+#   nearest       - Ranked list with distances                      (use with: findNearestFeatures)
+#   averageValue  - Single averaged value with color-coded tier     (use with: averageParallelValue)
+#   table         - Multi-column table (requires additionalFields)  (use with: any method)
+#
+# ============================================
+# STYLE OPTIONS
+# ============================================
+# color / fillColor: Hex color code ('#FF0000') or named color ('red')
+# opacity / fillOpacity: 0.0 (invisible) to 1.0 (solid). Typical: 0.3–0.9
+# weight: Line thickness in pixels (1–5 typical). Points use radius instead.
+#
+# ============================================
+# OPTIONAL PROPERTIES (add only if needed)
+# ============================================
+# additionalFields: []         - Extra field names to show alongside displayField
+# staticLabel: 'Some Text'     - Override field value with a fixed label for all features
+# showFullLayerInPdf: true     - Show entire layer on PDF map, not just matched features
+# lazyLoad: true               - Only load data when analysis runs (use for large datasets)
+# featureServiceUrl: 'https://'- ArcGIS Feature Service URL (alternative to filePath)
+# styleByProperty:             - Color features differently based on a field value (see LOTTR example)
+# displayThresholds:           - Color-coded bands for averageValue results (see LOTTR example)
+# analysisFilter:              - Only analyze features matching a field/value condition
+# offsetByDirection:             - Offset features so directional pairs don't overlap on map
+#   field: direction             - Property field containing direction value
+#   positiveValues: [...]        - Direction values that get positive pixel offset (others get negative)
+#   offset: 2                    - Offset amount in pixels (default: 2)
+# maxRecords: 5000             - Maximum features to request from Feature Service (default: 5000)
+# fieldLabels:                 - Rename raw field names for display (e.g. F__Below_A: '% Below ALICE')
+# areaLabel: 'Wetlands'        - Description appended to area totals (e.g. 'Total: 4.2 acres of Wetlands')
+# bufferUnit: 'feet'           - Unit for bufferDistance, proximityBuffer, minSharedLength, maxDistance values.
+#                                Supported: 'feet' (default), 'miles', 'meters', 'kilometers'
+#                                Example: bufferUnit: miles with bufferDistance: 0.5 means a half-mile buffer.
+# resultUnit:                  - Unit for output measurements displayed in results panel and PDF.
+#                                For distance methods (findNearestFeatures): 'feet' (default), 'miles', 'meters', 'kilometers'
+#                                For area methods (measureIntersectedArea, measureNearbyArea): 'acres' (default), 'sq miles', 'sq ft', 'sq meters', 'sq km'
+#                                For length methods (measureProjectByCategory): 'miles' (default), 'feet', 'kilometers', 'meters'
+# countLabel: 'crashes'         - Label for count results (e.g. "Total crashes: 5" instead of "Total: 5").
+# sumUnit: 'acres'             - Unit label appended to sum results for sumNearbyValues and measureNearbyArea.
+#                                Use any label string (e.g. 'acres', 'sq miles', 'jobs', 'residents').
+# specialHandling:
+#   removeDirectionalSuffixes: true  - Remove " NB"/" SB"/" EB"/" WB"/" IB"/" OB" from route names
+#   directionalSuffixes: ['NB', 'SB', 'EB', 'WB', 'IB', 'OB']  - Custom suffixes (default shown)
+#   deduplicate: true                - Merge features with the same display name
+#
+# ============================================
+
+# ========== ACTIVE DATASETS ==========
+
+# ---------- Bus Routes (LineString — listParallelFeatures) ----------
+mataRoutes:
+  name: Bus Routes
+  description: "Projects that run alongside existing transit routes are strong candidates for multimodal investments — bus shelters, sidewalk connections, and bike facilities that extend the reach of the transit network. The same method works for any linear network you want to score proximity to: bike lanes, freight corridors, BRT, or future planned routes."
+  category: Transportation
+  dataSource: Memphis MPO
+  filePath: ./data/mata-routes.json
+  geometryType: LineString
+  analysisMethod: listParallelFeatures
+
+  bufferDistance: 100    # Initial intersection buffer in feet
+  minSharedLength: 300   # Minimum feet of parallel overlap required to count as a match
+
+  properties:
+    displayField: Name   # Route name field in the data file
+
+  specialHandling:
+    removeDirectionalSuffixes: true  # Remove " NB"/" SB" from route names before deduplication
+    deduplicate: true                # Merge routes with same name after removing suffixes
+
+  style:
+    color: '#0066CC'  # Blue
+    weight: 2
+    opacity: 0.7
+
+  resultStyle: list
+  enabled: true
+
+# ---------- Opportunity Zones (Polygon — listIntersectingFeatures) ----------
+opportunityZones:
+  name: Opportunity Zones
+  description: Knowing which funding geographies a project touches opens doors to targeted financing and partnership opportunities. This same polygon-overlay approach works for any place-based policy layer — Promise Zones, HUD Qualified Census Tracts, TIF districts, or equity focus areas defined in your own plan.
+  category: Economic Development
+  dataSource: Memphis MPO
+  filePath: ./data/opportunity-zones.json
+  geometryType: Polygon
+  analysisMethod: listIntersectingFeatures
+
+  properties:
+    displayField: CENSUSTRAC  # Census tract identifier field in the data file
+    additionalFields: []
+
+  style:
+    color: '#FF8C00'      # Dark orange outline
+    weight: 2
+    fillColor: '#FFD700'  # Gold fill
+    fillOpacity: 0.3
+
+  resultStyle: list
+  enabled: true
+
+# ---------- Bridge Condition (Point — countByCategory) ----------
+nbiBridges:
+  name: Bridge Condition
+  description: "Bridges near a project scored by FHWA condition rating highlight infrastructure needs that strengthen a project's case for funding. The same count-by-category pattern works for any point dataset where you want to tally features by a classification field — crash severity, asset condition grade, or inspection status."
+  category: Infrastructure
+  dataSource: FHWA NBI (2025)
+  filePath: ./data/nbi_bridges.json
+  geometryType: Point
+  analysisMethod: countByCategory
+
+  proximityBuffer: 500    # Distance in feet to search around the project
+  countByField: condition  # Group counts by Good/Fair/Poor
+
+  properties:
+    displayField: route
+    additionalFields:
+      - crosses
+      - condition
+
+  style:
+    color: '#555555'
+    fillColor: '#555555'
+    radius: 4
+    fillOpacity: 0.8
+    weight: 1
+
+  styleByProperty:
+    field: condition
+    values:
+      'Good':
+        color: '#4CAF50'
+        fillColor: '#4CAF50'
+      'Fair':
+        color: '#FDD835'
+        fillColor: '#FDD835'
+      'Poor':
+        color: '#CC0000'
+        fillColor: '#CC0000'
+
+  resultStyle: count
+  countLabel: bridges
+  enabled: true
+
+# ---------- Pavement Condition / IRI (LineString — averageParallelValue) ----------
+hpmsIri:
+  name: Pavement Condition (IRI)
+  description: A length-weighted average of any numeric field across parallel segments is a powerful way to tie project location to measured performance. Beyond pavement roughness, the same method can score projects against speed data, truck volume, travel time reliability, or any corridor-level metric you want to use as a selection criterion.
+  category: Transportation
+  dataSource: FHWA HPMS (2023)
+  filePath: ./data/hpms_iri_2023.json
+  geometryType: LineString
+  analysisMethod: averageParallelValue
+
+  bufferDistance: 100    # Initial intersection buffer in feet
+  minSharedLength: 100   # Minimum feet of overlap required to include a segment
+  averageField: iri      # Numeric field to length-weight-average across matched segments
+
+  # Color-coded bands for the averaged result (checked top to bottom, first match wins)
+  # IRI thresholds per FHWA: Good ≤ 95, Fair 96–170, Poor > 170
+  displayThresholds:
+    - { label: Good,  max: 95,  color: '#4CAF50' }
+    - { label: Fair,  max: 170, color: '#F9A825' }
+    - { label: Poor,  color: '#CC0000' }
+
+  properties:
+    displayField: road
+    additionalFields: []
+    fieldLabels:
+      iri: "IRI (in/mi)"
+
+  style:
+    color: '#F9A825'  # Default yellow (overridden per-feature by styleByProperty below)
+    weight: 3
+    opacity: 0.85
+
+  styleByProperty:
+    field: iri_tier
+    values:
+      'Good':
+        color: '#4CAF50'  # Green — IRI ≤ 95
+        weight: 2
+        opacity: 0.75
+      'Fair':
+        color: '#FDD835'  # Yellow — IRI 96–170
+        weight: 3
+        opacity: 0.85
+      'Poor':
+        color: '#CC0000'  # Red — IRI > 170
+        weight: 3
+        opacity: 0.9
+
+  resultStyle: averageValue
+  enabled: true
+
+# ---------- Parks (Polygon — measureIntersectedArea) ----------
+parks:
+  name: Parks & Recreation Areas
+  description: "Measuring how much of a sensitive area a project touches — in acres — makes impact tangible in a way that a simple yes/no cannot. Use this method wherever quantity matters: wetlands, floodplains, tree canopy, farmland, or any polygon layer where the size of the overlap is as important as the overlap itself."
+  category: Environmental/Cultural
+  dataSource: Memphis MPO
+  filePath: ./data/parks.json
+  geometryType: Polygon
+  analysisMethod: measureIntersectedArea
+
+  proximityBuffer: 100    # Search distance in feet around the project
+  resultUnit: acres        # Display area in acres
+  areaLabel: park land     # e.g. "Total: 4.2 acres of park land"
+
+  properties:
+    displayField: NAME
+    additionalFields:
+      - FEATTYPE
+
+  style:
+    color: '#228B22'       # Forest green outline
+    weight: 2
+    fillColor: '#90EE90'   # Light green fill
+    fillOpacity: 0.3
+
+  resultStyle: area
+  enabled: true
+
+# ============================================
+# TEMPLATE EXAMPLES
+# ============================================
+# Copy any block below, paste it above this line, uncomment it (remove the # from each line),
+# and fill in your values. The key (e.g. "myDatasetKey:") must be unique — no spaces allowed.
+#
+# TIP: The key becomes the internal dataset ID. Use camelCase (e.g. myRoads, floodZones).
+
+# ---------- TEMPLATE: Points within buffer (listNearbyFeatures) ----------
+# myPoints:
+#   name: My Point Layer          # Display name shown in the results panel
+#   description: What this layer represents and why it matters for project review.
+#   category: Transportation      # Groups layers in the panel. Use any label you like.
+#   dataSource: My Agency (2024)
+#   filePath: ./data/my_points.json
+#   geometryType: Point
+#   analysisMethod: listNearbyFeatures
+#
+#   proximityBuffer: 500          # Distance in feet to search around the project
+#
+#   properties:
+#     displayField: NAME          # REQUIRED: field name from your data file (case-sensitive)
+#     additionalFields: []        # Optional: extra fields to show, e.g. [TYPE, ADDRESS]
+#
+#   style:
+#     color: '#CC0000'            # Point border color
+#     fillColor: '#CC0000'        # Point fill color
+#     radius: 5                   # Point size in pixels
+#     fillOpacity: 0.8
+#     weight: 1
+#
+#   resultStyle: list
+#   enabled: true
+
+# ---------- TEMPLATE: Areas overlapping project (listIntersectingFeatures) ----------
+# myPolygons:
+#   name: My Polygon Layer
+#   description: Areas that overlap or cross the project alignment.
+#   category: Environmental/Cultural
+#   dataSource: My Agency (2024)
+#   filePath: ./data/my_polygons.json
+#   geometryType: Polygon
+#   analysisMethod: listIntersectingFeatures
+#
+#   properties:
+#     displayField: NAME          # REQUIRED: field name from your data file (case-sensitive)
+#     additionalFields: []
+#
+#   style:
+#     color: '#228B22'            # Outline color
+#     weight: 2
+#     fillColor: '#228B22'        # Fill color
+#     fillOpacity: 0.3
+#
+#   resultStyle: list
+#   enabled: true
+
+# ---------- TEMPLATE: Yes/No presence check (hasNearbyFeatures) ----------
+# myBinaryLayer:
+#   name: My Binary Layer
+#   description: Checks if any features exist within the buffer distance.
+#   category: Environmental/Cultural
+#   dataSource: My Agency (2024)
+#   filePath: ./data/my_data.json
+#   geometryType: Polygon         # or Point
+#   analysisMethod: hasNearbyFeatures
+#
+#   proximityBuffer: 500          # Distance in feet
+#
+#   properties:
+#     displayField: NAME
+#     additionalFields: []
+#
+#   style:
+#     color: '#0099CC'
+#     weight: 2
+#     fillColor: '#0099CC'
+#     fillOpacity: 0.3
+#
+#   resultStyle: binary
+#   enabled: true
+
+# ---------- TEMPLATE: Count nearby points by category (countByCategory) ----------
+# myCrashLayer:
+#   name: Crashes
+#   description: Counts crash points within buffer, broken down by severity.
+#   category: Safety
+#   dataSource: My Agency (2024)
+#   filePath: ./data/crashes.json
+#   geometryType: Point
+#   analysisMethod: countByCategory
+#
+#   proximityBuffer: 1000         # Distance in feet
+#   countByField: SEVERITY        # Field to group counts by (omit to use displayField)
+#
+#   properties:
+#     displayField: SEVERITY      # Field name from your data file
+#     additionalFields: []
+#
+#   style:
+#     color: '#FF4500'
+#     fillColor: '#FF4500'
+#     radius: 4
+#     fillOpacity: 0.7
+#     weight: 1
+#
+#   resultStyle: count
+#   enabled: true
+
+# ---------- TEMPLATE: Sum a numeric field nearby (sumNearbyValues) ----------
+# myCensusTracts:
+#   name: Census Tracts — Population
+#   description: Total population within half a mile of the project.
+#   category: Demographics
+#   dataSource: U.S. Census (2020)
+#   filePath: ./data/census_tracts.json
+#   geometryType: Polygon
+#   analysisMethod: sumNearbyValues
+#
+#   proximityBuffer: 0.5          # Search distance (in bufferUnit)
+#   bufferUnit: miles             # bufferUnit applies to proximityBuffer above
+#   sumField: POP_2020            # Numeric field to add up
+#
+#   properties:
+#     displayField: TRACTCE
+#     additionalFields: []
+#
+#   style:
+#     color: '#9370DB'
+#     weight: 1
+#     fillColor: '#9370DB'
+#     fillOpacity: 0.2
+#
+#   resultStyle: sum
+#   enabled: true
+
+# ---------- TEMPLATE: Nearest X features with distance (findNearestFeatures) ----------
+# myHospitals:
+#   name: Hospitals
+#   description: Three nearest hospitals to the project, with distances.
+#   category: Community Facilities
+#   dataSource: My Agency (2024)
+#   filePath: ./data/hospitals.json
+#   geometryType: Point
+#   analysisMethod: findNearestFeatures
+#
+#   nearestCount: 3               # How many results to return
+#   maxDistance: 5                # Maximum search distance (in bufferUnit). Remove line to search all.
+#   bufferUnit: miles             # bufferUnit applies to maxDistance above
+#
+#   properties:
+#     displayField: NAME
+#     additionalFields:
+#       - ADDRESS
+#       - PHONE
+#
+#   style:
+#     color: '#E91E63'
+#     fillColor: '#E91E63'
+#     radius: 6
+#     fillOpacity: 0.9
+#     weight: 1
+#
+#   resultStyle: nearest
+#   enabled: true
+
+# ---------- TEMPLATE: List parallel line features (listParallelFeatures) ----------
+# myParallelRoutes:
+#   name: My Parallel Routes
+#   description: Lists routes that run parallel to the project alignment for at least 300 ft.
+#   category: Transportation
+#   dataSource: My Agency (2024)
+#   filePath: ./data/my_routes.json
+#   geometryType: LineString      # REQUIRED: must be LineString
+#   analysisMethod: listParallelFeatures
+#
+#   bufferDistance: 100           # REQUIRED: lateral search distance in feet
+#   minSharedLength: 300          # REQUIRED: minimum feet of parallel overlap to count
+#
+#   properties:
+#     displayField: ROUTE_NAME    # REQUIRED: field name from your data file (case-sensitive)
+#     additionalFields: []
+#
+#   style:
+#     color: '#1E90FF'
+#     weight: 3
+#
+#   resultStyle: list             # Shows matching route names in a list
+#   enabled: true
+
+# ---------- TEMPLATE: Measure project by category (measureProjectByCategory) ----------
+# myFunctionalClass:
+#   name: Functional Classification
+#   description: Breaks down project length by road functional classification category.
+#   category: Transportation
+#   dataSource: My Agency (2024)
+#   filePath: ./data/functional_class.json
+#   geometryType: LineString      # REQUIRED: must be LineString
+#   analysisMethod: measureProjectByCategory
+#
+#   bufferDistance: 100           # REQUIRED: lateral search distance in feet
+#   minSharedLength: 300          # REQUIRED: minimum feet of overlap to count a match
+#   statusField: FUNC_CLASS       # REQUIRED: field whose value defines the category
+#
+#   properties:
+#     displayField: FUNC_CLASS    # REQUIRED: field name from your data file (case-sensitive)
+#     additionalFields: []
+#
+#   style:
+#     color: '#FF8C00'
+#     weight: 2
+#
+#   resultStyle: lengthByStatus   # Shows percentage breakdown by category
+#   enabled: true
+
+# ---------- TEMPLATE: Project corridor coverage (projectCoverage) ----------
+# myTransitLines:
+#   name: Transit Line Coverage
+#   description: Percentage of the project corridor that overlaps with transit routes.
+#   category: Transportation
+#   dataSource: My Agency (2024)
+#   filePath: ./data/transit_lines.json
+#   geometryType: LineString      # REQUIRED: must be LineString
+#   analysisMethod: projectCoverage
+#
+#   bufferDistance: 200           # REQUIRED: lateral search distance in feet
+#
+#   properties:
+#     displayField: ROUTE_NAME    # REQUIRED: field name from your data file (case-sensitive)
+#     additionalFields: []
+#
+#   style:
+#     color: '#00AA44'
+#     weight: 3
+#
+#   resultStyle: percentage       # Shows "X% of project" within the corridor
+#   enabled: true
+
+# ---------- TEMPLATE: Measure intersected polygon area (measureIntersectedArea) ----------
+# myFloodZones:
+#   name: Flood Zone Area
+#   description: Total acreage of flood zones intersected by the project buffer.
+#   category: Environmental/Cultural
+#   dataSource: FEMA (2024)
+#   filePath: ./data/flood_zones.json
+#   geometryType: Polygon         # REQUIRED: must be Polygon
+#   analysisMethod: measureIntersectedArea
+#
+#   proximityBuffer: 500          # Search distance (in bufferUnit) around the project
+#   bufferUnit: feet              # Optional: defaults to feet
+#   resultUnit: acres             # Optional: display unit — acres, sq miles, sq ft, sq km, sq meters
+#   areaLabel: flood zone         # Optional: display text, e.g. "Total: 4.2 acres of flood zone"
+#
+#   properties:
+#     displayField: FLD_ZONE      # REQUIRED: field name from your data file (case-sensitive)
+#     additionalFields: []
+#
+#   style:
+#     color: '#4169E1'
+#     weight: 1
+#     fillColor: '#4169E1'
+#     fillOpacity: 0.3
+#
+#   resultStyle: area             # Shows total intersected area
+#   enabled: true
+
+# ---------- TEMPLATE: Average a numeric field on parallel segments (averageParallelValue) ----------
+# myNpmrds:
+#   name: Travel Time Reliability
+#   description: Average travel time reliability index for segments parallel to the project.
+#                Real-world example: see hpmsIri dataset above.
+#   category: Transportation
+#   dataSource: NPMRDS (2023)
+#   filePath: ./data/npmrds.json
+#   geometryType: LineString      # REQUIRED: must be LineString
+#   analysisMethod: averageParallelValue
+#
+#   bufferDistance: 100           # REQUIRED: lateral search distance in feet
+#   minSharedLength: 300          # REQUIRED: minimum feet of overlap to include a segment
+#   averageField: TTR_VALUE       # REQUIRED: numeric field to average across matching segments
+#
+#   properties:
+#     displayField: ROUTE_NAME    # REQUIRED: field name from your data file (case-sensitive)
+#     additionalFields: []
+#
+#   style:
+#     color: '#8B008B'
+#     weight: 2
+#
+#   resultStyle: averageValue     # Shows weighted average of the numeric field
+#   enabled: true

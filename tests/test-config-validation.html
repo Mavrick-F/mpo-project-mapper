@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Config Validation Tests</title>
+  <style>
+    body { font-family: 'Consolas', 'Monaco', monospace; max-width: 900px; margin: 0 auto; padding: 20px; background: #1a1a1a; color: #e0e0e0; }
+    h1, h2 { color: #4fc3f7; }
+    .suite { margin-bottom: 24px; border: 1px solid #333; padding: 16px; border-radius: 5px; }
+    .test { margin: 8px 0; padding: 8px 12px; background: #252525; border-radius: 3px; }
+    .pass { border-left: 4px solid #4caf50; }
+    .fail { border-left: 4px solid #f44336; }
+    .name { font-weight: bold; }
+    .detail { font-size: 12px; color: #888; margin-top: 4px; }
+    .summary { padding: 16px; margin: 16px 0; border-radius: 5px; font-size: 16px; }
+    .all-pass { background: #1b5e20; }
+    .has-fail { background: #b71c1c; }
+  </style>
+</head>
+<body>
+  <h1>Config Validation Tests</h1>
+  <p>Tests AppUtils, validateDatasetConfigs(), and interpolateTemplate() without a live server.</p>
+  <div id="summary" class="summary"></div>
+  <div id="results"></div>
+
+  <!-- Dependencies -->
+  <script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <script src="../src/utils.js"></script>
+  <script src="../src/config.js"></script>
+  <script src="../src/datasets.js"></script>
+  <script>
+    // datasets.js fires loadDatasets() on load — suppress the expected fetch failure
+    // (datasets.yaml is not available in the tests/ directory).
+    // Must be attached before app.js sets window.onunhandledrejection.
+    if (typeof datasetsLoaded !== 'undefined') {
+      datasetsLoaded.catch(() => {});
+    }
+  </script>
+
+  <!-- Load app.js for validateDatasetFields() — prevent init() from running -->
+  <script>
+    const _origAddEventListener = document.addEventListener.bind(document);
+    document.addEventListener = function(type, fn, opts) {
+      if (type === 'DOMContentLoaded') return;
+      _origAddEventListener(type, fn, opts);
+    };
+  </script>
+  <script src="../src/app.js"></script>
+  <script>document.addEventListener = _origAddEventListener;</script>
+
+  <script>
+
+    // ============================================================
+    // Test runner
+    // ============================================================
+    const tests = [];
+    function test(suite, name, fn) {
+      let passed = false;
+      let detail = '';
+      try {
+        const result = fn();
+        passed = result === true;
+        if (!passed) detail = 'Returned: ' + JSON.stringify(result);
+      } catch (e) {
+        detail = 'Threw: ' + e.message;
+      }
+      tests.push({ suite, name, passed, detail });
+    }
+
+    // ============================================================
+    // Suite 1: AppUtils.isValidColor
+    // ============================================================
+    test('AppUtils.isValidColor', 'Valid 3-digit hex (#abc)', () => AppUtils.isValidColor('#abc') === true);
+    test('AppUtils.isValidColor', 'Valid 6-digit hex (#0066CC)', () => AppUtils.isValidColor('#0066CC') === true);
+    test('AppUtils.isValidColor', 'Valid 8-digit hex (#0066CCFF)', () => AppUtils.isValidColor('#0066CCFF') === true);
+    test('AppUtils.isValidColor', 'Named color: red', () => AppUtils.isValidColor('red') === true);
+    test('AppUtils.isValidColor', 'Named color: steelblue', () => AppUtils.isValidColor('steelblue') === true);
+    test('AppUtils.isValidColor', 'rgb() format', () => AppUtils.isValidColor('rgb(0, 102, 204)') === true);
+    test('AppUtils.isValidColor', 'rgba() format', () => AppUtils.isValidColor('rgba(0, 102, 204, 0.5)') === true);
+    test('AppUtils.isValidColor', 'Invalid hex #GG0000 → false', () => AppUtils.isValidColor('#GG0000') === false);
+    test('AppUtils.isValidColor', 'Empty string → false', () => AppUtils.isValidColor('') === false);
+    test('AppUtils.isValidColor', 'null → false', () => AppUtils.isValidColor(null) === false);
+
+    // ============================================================
+    // Suite 2: AppUtils.escapeHtml
+    // ============================================================
+    test('AppUtils.escapeHtml', 'Escapes script tags', () => {
+      const result = AppUtils.escapeHtml('<script>alert(1)<\/script>');
+      return !result.includes('<script>');
+    });
+    test('AppUtils.escapeHtml', 'Handles null → empty string', () => AppUtils.escapeHtml(null) === '');
+    test('AppUtils.escapeHtml', 'Passes through plain text', () => AppUtils.escapeHtml('hello') === 'hello');
+    test('AppUtils.escapeHtml', 'Handles numbers', () => AppUtils.escapeHtml(42) === '42');
+
+    // ============================================================
+    // Suite 3: validateDatasetConfigs()
+    // ============================================================
+
+    // Override DATASETS with mocks for testing — no YAML fetch required
+    // Keep original so we can restore
+    const originalDatasets = Object.assign({}, DATASETS);
+
+    function runValidationWith(mockDatasets) {
+      Object.keys(DATASETS).forEach(k => delete DATASETS[k]);
+      Object.assign(DATASETS, mockDatasets);
+      const warnings = validateDatasetConfigs();
+      Object.keys(DATASETS).forEach(k => delete DATASETS[k]);
+      Object.assign(DATASETS, originalDatasets);
+      return warnings;
+    }
+
+    test('validateDatasetConfigs', 'Wrong geometry for method → warning', () => {
+      const warnings = runValidationWith({
+        testDs: {
+          enabled: true,
+          name: 'Test',
+          analysisMethod: 'listParallelFeatures',
+          geometryType: 'Point'
+        }
+      });
+      return warnings.some(w => w.includes('incompatible'));
+    });
+
+    test('validateDatasetConfigs', 'Missing required field → warning', () => {
+      const warnings = runValidationWith({
+        testDs: {
+          enabled: true,
+          name: 'Test',
+          analysisMethod: 'listParallelFeatures',
+          geometryType: 'LineString'
+          // missing bufferDistance and minSharedLength
+        }
+      });
+      return warnings.some(w => w.includes('requires'));
+    });
+
+    test('validateDatasetConfigs', 'Invalid hex color → warning', () => {
+      const warnings = runValidationWith({
+        testDs: {
+          enabled: true,
+          name: 'Test',
+          analysisMethod: 'listIntersectingFeatures',
+          geometryType: 'LineString',
+          style: { color: '#GG0000' }
+        }
+      });
+      return warnings.some(w => w.includes('color'));
+    });
+
+    test('validateDatasetConfigs', 'Valid named color → no color warning', () => {
+      const warnings = runValidationWith({
+        testDs: {
+          enabled: true,
+          name: 'Test',
+          analysisMethod: 'listIntersectingFeatures',
+          geometryType: 'LineString',
+          style: { color: 'steelblue' }
+        }
+      });
+      return !warnings.some(w => w.includes('color'));
+    });
+
+    test('validateDatasetConfigs', 'Unknown analysisMethod → warning with valid values', () => {
+      const warnings = runValidationWith({
+        testDs: {
+          enabled: true,
+          name: 'Test',
+          analysisMethod: 'doesNotExist',
+          geometryType: 'LineString'
+        }
+      });
+      return warnings.some(w => w.includes('Unknown analysisMethod'));
+    });
+
+    test('validateDatasetConfigs', 'Unknown resultStyle → warning with valid values', () => {
+      const warnings = runValidationWith({
+        testDs: {
+          enabled: true,
+          name: 'Test',
+          analysisMethod: 'listIntersectingFeatures',
+          geometryType: 'LineString',
+          resultStyle: 'notARealStyle'
+        }
+      });
+      return warnings.some(w => w.includes('Unknown resultStyle'));
+    });
+
+    // ============================================================
+    // Suite 4: interpolateTemplate()
+    // ============================================================
+    test('interpolateTemplate', 'Normal path resolves scalar value', () => {
+      const config = { org: { name: 'Test MPO' } };
+      return interpolateTemplate('Hello {org.name}', config) === 'Hello Test MPO';
+    });
+
+    test('interpolateTemplate', 'Missing path returns placeholder unchanged', () => {
+      const config = { org: { name: 'Test MPO' } };
+      const result = interpolateTemplate('{nonexistent.path}', config);
+      return result === '{nonexistent.path}';
+    });
+
+    test('interpolateTemplate', 'Non-scalar resolved value returns placeholder unchanged', () => {
+      const config = { org: { nested: { a: 1, b: 2 } } };
+      const result = interpolateTemplate('{org.nested}', config);
+      // Should return placeholder, not '[object Object]'
+      return result === '{org.nested}' && result !== '[object Object]';
+    });
+
+    test('interpolateTemplate', 'Numeric value converts to string', () => {
+      const config = { plan: { year: 2055 } };
+      return interpolateTemplate('RTP {plan.year}', config) === 'RTP 2055';
+    });
+
+    // ============================================================
+    // Suite 5: Config Normalization (regression tests)
+    // ============================================================
+
+    // Helper: simulate the normalization loop from loadDatasets()
+    function normalizeDataset(key, dataset) {
+      if (dataset && typeof dataset === 'object') {
+        dataset.id = key;
+        if (!dataset.properties) {
+          dataset.properties = {};
+        }
+        dataset.properties.additionalFields = dataset.properties.additionalFields || [];
+        dataset.properties.fieldLabels = dataset.properties.fieldLabels || {};
+      }
+      return dataset;
+    }
+
+    test('Config Normalization', 'additionalFields absent → becomes []', () => {
+      const ds = normalizeDataset('test', { properties: { displayField: 'NAME' } });
+      return Array.isArray(ds.properties.additionalFields) && ds.properties.additionalFields.length === 0;
+    });
+
+    test('Config Normalization', 'fieldLabels absent → becomes {}', () => {
+      const ds = normalizeDataset('test', { properties: { displayField: 'NAME' } });
+      return typeof ds.properties.fieldLabels === 'object'
+        && Object.keys(ds.properties.fieldLabels).length === 0;
+    });
+
+    test('Config Normalization', 'properties block absent → normalized with defaults', () => {
+      const ds = normalizeDataset('test', { analysisMethod: 'listNearbyFeatures' });
+      return ds.properties !== undefined
+        && Array.isArray(ds.properties.additionalFields)
+        && typeof ds.properties.fieldLabels === 'object';
+    });
+
+    test('Config Normalization', 'getFieldLabel with empty fieldLabels returns raw name', () => {
+      return getFieldLabel('CRASH_TYPE', {}) === 'CRASH_TYPE';
+    });
+
+    test('Config Normalization', 'TABLE with empty additionalFields: additionalFields.length is 0', () => {
+      // Verifies the normalized state that causes TABLE to fall through to LIST safely
+      const ds = normalizeDataset('test', {
+        resultStyle: 'table',
+        properties: { displayField: 'NAME' }
+      });
+      return ds.properties.additionalFields.length === 0;
+    });
+
+    // ============================================================
+    // Suite 6: validateDatasetFields() (field name validation)
+    // ============================================================
+
+    // Mock GeoJSON for field validation tests
+    const mockGeoJson = {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: { NAME: 'Test', STATUS: 'Good', VALUE: 10, CATEGORY: 'A' },
+        geometry: { type: 'Point', coordinates: [0, 0] }
+      }]
+    };
+
+    test('validateDatasetFields', 'Misspelled sumField → warning', () => {
+      const config = { name: 'Test', sumField: 'VALUEE', properties: { additionalFields: [] } };
+      const warnings = validateDatasetFields('testDs', config, mockGeoJson);
+      return warnings.length > 0 && warnings[0].includes('VALUEE');
+    });
+
+    test('validateDatasetFields', 'Misspelled styleByProperty.field → warning', () => {
+      const config = {
+        name: 'Test',
+        styleByProperty: { field: 'STATUSS', values: {} },
+        properties: { additionalFields: [] }
+      };
+      const warnings = validateDatasetFields('testDs', config, mockGeoJson);
+      return warnings.length > 0 && warnings[0].includes('STATUSS');
+    });
+
+    test('validateDatasetFields', 'Misspelled filterByThreshold.field → warning', () => {
+      const config = {
+        name: 'Test',
+        filterByThreshold: { field: 'VALUEE', min: 5 },
+        properties: { additionalFields: [] }
+      };
+      const warnings = validateDatasetFields('testDs', config, mockGeoJson);
+      return warnings.length > 0 && warnings[0].includes('VALUEE');
+    });
+
+    test('validateDatasetFields', 'Correct field names → no warnings', () => {
+      const config = {
+        name: 'Test',
+        sumField: 'VALUE',
+        statusField: 'STATUS',
+        styleByProperty: { field: 'CATEGORY', values: {} },
+        filterByThreshold: { field: 'VALUE', min: 5 },
+        properties: { displayField: 'NAME', additionalFields: ['STATUS', 'VALUE'] }
+      };
+      const warnings = validateDatasetFields('testDs', config, mockGeoJson);
+      return warnings.length === 0;
+    });
+
+    test('validateDatasetFields', 'No GeoJSON data → returns early with no warnings', () => {
+      const config = {
+        name: 'Test',
+        sumField: 'VALUEE',
+        properties: { additionalFields: [] }
+      };
+      const warnings = validateDatasetFields('testDs', config, null);
+      return warnings.length === 0;
+    });
+
+    // ============================================================
+    // Render results
+    // ============================================================
+    const suites = [...new Set(tests.map(t => t.suite))];
+    const allPassed = tests.every(t => t.passed);
+    const passCount = tests.filter(t => t.passed).length;
+
+    document.getElementById('summary').className = 'summary ' + (allPassed ? 'all-pass' : 'has-fail');
+    document.getElementById('summary').textContent =
+      `${passCount} / ${tests.length} tests passed` + (allPassed ? ' ✓' : ' — see failures below');
+
+    const resultsEl = document.getElementById('results');
+    suites.forEach(suite => {
+      const suiteTests = tests.filter(t => t.suite === suite);
+      let html = `<div class="suite"><h2>${suite}</h2>`;
+      suiteTests.forEach(t => {
+        html += `<div class="test ${t.passed ? 'pass' : 'fail'}">`;
+        html += `<div class="name">${t.passed ? '✓' : '✗'} ${t.name}</div>`;
+        if (t.detail) html += `<div class="detail">${t.detail}</div>`;
+        html += `</div>`;
+      });
+      html += `</div>`;
+      resultsEl.innerHTML += html;
+    });
+  </script>
+</body>
+</html>

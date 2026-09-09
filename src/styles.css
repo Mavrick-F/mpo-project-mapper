@@ -1,0 +1,654 @@
+/* ============================================
+   RESET & BASE STYLES
+   ============================================ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333333;
+  background-color: #ffffff;
+  overflow: hidden;
+}
+
+/* ============================================
+   LAYOUT
+   ============================================ */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Top header bar */
+header {
+  display: flex;
+  align-items: center;
+  gap: 27px;
+  padding: 18px 32px;
+  background: linear-gradient(to bottom, #ffffff 0%, #f8f9fa 100%);
+  color: #2c3e50;
+  min-height: 95px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  position: relative;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+/* Subtle accent line at top */
+header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(to right, #5b6b8f 0%, #4fb3a8 50%, #5b6b8f 100%);
+  opacity: 0.85;
+}
+
+header img {
+  height: 64px;
+  max-width: 600px;
+  margin: 0;
+  object-fit: contain;
+  position: relative;
+  z-index: 1;
+  transition: opacity 0.2s ease;
+}
+
+header img:hover {
+  opacity: 0.9;
+}
+
+/* Vertical separator */
+header::after {
+  content: '';
+  width: 1px;
+  height: 53px;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(44, 62, 80, 0.15) 20%,
+    rgba(44, 62, 80, 0.15) 80%,
+    transparent 100%);
+  position: relative;
+  z-index: 1;
+}
+
+header h1 {
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  position: relative;
+  z-index: 1;
+  color: #2c3e50;
+}
+
+header h1 .header-year {
+  font-weight: 700;
+  color: #5b6b8f;
+  letter-spacing: 0.5px;
+}
+
+header h1 .header-app {
+  font-weight: 500;
+  color: #4a5568;
+}
+
+/* Main container with sidebar and map */
+#container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Left sidebar for results */
+#sidebar {
+  width: 350px;
+  background-color: #F5F5F5;
+  overflow-y: auto;
+  padding: 20px;
+  border-right: 1px solid #CCCCCC;
+}
+
+/* Map container */
+#map {
+  flex: 1;
+  position: relative;
+}
+
+/* ============================================
+   SIDEBAR COMPONENTS
+   ============================================ */
+.sidebar-section {
+  margin-bottom: 25px;
+}
+
+.section-heading {
+  font-size: 16px;
+  font-weight: bold;
+  color: #1565C0;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.divider {
+  height: 1px;
+  background-color: #CCCCCC;
+  margin: 20px 0;
+}
+
+/* Project name input */
+#projectName {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #CCCCCC;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+#projectName:focus {
+  outline: none;
+  border-color: #1565C0;
+  box-shadow: 0 0 0 2px rgba(21, 101, 192, 0.1);
+}
+
+/* Project name section - hidden until drawing complete */
+#projectNameSection {
+  display: none;
+}
+
+#projectNameSection.visible {
+  display: block;
+}
+
+/* Results lists */
+.results-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.results-list li {
+  padding: 5px 0;
+  padding-left: 15px;
+  position: relative;
+}
+
+.results-list li:before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #1565C0;
+  font-weight: bold;
+}
+
+.empty-state {
+  color: #666666;
+  font-style: italic;
+  padding: 5px 0;
+}
+
+/* Results card styling */
+.results-card {
+  background-color: white;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 15px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  border-left: 3px solid #1565C0;
+}
+
+.results-card .section-heading {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.result-count {
+  display: inline-block;
+  background-color: #E3F2FD;
+  color: #1565C0;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+.result-card-body {
+  padding: 10px;
+  background-color: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  margin-top: 10px;
+}
+
+/* Buttons */
+.btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-family: inherit;
+}
+
+.btn-primary {
+  background-color: #1565C0;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #0D47A1;
+}
+
+.btn-primary:disabled {
+  background-color: #CCCCCC;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: #666666;
+  color: white;
+  margin-top: 10px;
+}
+
+.btn-secondary:hover {
+  background-color: #444444;
+}
+
+.btn-draw {
+  background-color: #1565C0;
+  color: white;
+  margin-bottom: 10px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: left;
+}
+
+.btn-draw:hover {
+  background-color: #0D47A1;
+}
+
+.btn-draw.active {
+  background-color: #43A047;
+  box-shadow: 0 0 0 3px rgba(67, 160, 71, 0.3);
+}
+
+.btn-draw.active:hover {
+  background-color: #2E7D32;
+}
+
+/* Helper text */
+.helper-text {
+  font-size: 12px;
+  color: #666666;
+  margin-top: 5px;
+}
+
+/* ============================================
+   LOADING OVERLAY
+   ============================================ */
+#loadingOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #004C97;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+#loadingText {
+  margin-top: 20px;
+  font-size: 16px;
+  color: #333333;
+}
+
+/* ============================================
+   RESPONSIVE WARNING
+   ============================================ */
+#mobileWarning {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: white;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+  z-index: 10000;
+}
+
+@media (max-width: 1024px) {
+  #mobileWarning {
+    display: flex;
+  }
+
+  #app {
+    display: none;
+  }
+}
+
+/* ============================================
+   LEAFLET CUSTOMIZATIONS
+   ============================================ */
+.leaflet-draw-toolbar a {
+  background-color: #1565C0;
+}
+
+.leaflet-draw-draw-polyline {
+  background-color: #1565C0;
+}
+
+/* Custom tooltip styling */
+.leaflet-tooltip {
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* Layer control styling */
+.leaflet-control-layers {
+  background-color: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  padding: 6px 10px;
+}
+
+.leaflet-control-layers-list {
+  font-size: 11px;
+}
+
+.leaflet-control-layers label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 3px 0;
+  cursor: pointer;
+}
+
+.leaflet-control-layers-overlays {
+  padding-top: 5px;
+}
+
+/* Scale control styling */
+.leaflet-control-scale-line {
+  background-color: rgba(255,255,255,0.8);
+  border: 1px solid #666;
+  border-top: none;
+  font-size: 11px;
+  padding: 2px 5px;
+}
+
+/* ============================================
+   MEASUREMENT TOOL
+   ============================================ */
+
+/* Measurement Tool Control */
+.leaflet-control-measure {
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  margin-top: 10px; /* Space below zoom control */
+}
+
+.leaflet-control-measure a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  text-decoration: none;
+  color: #333;
+  background-color: white;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.leaflet-control-measure a:hover {
+  background-color: #f4f4f4;
+}
+
+.leaflet-control-measure a.active {
+  background-color: #1565C0;
+  color: white;
+}
+
+.leaflet-control-measure a.active:hover {
+  background-color: #0D47A1;
+}
+
+/* Measurement tooltip styling */
+.measurement-total-label {
+  background-color: rgba(255, 140, 0, 0.9);
+  color: white;
+  border: 2px solid white;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: bold;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.measurement-total-label::before {
+  border-top-color: rgba(255, 140, 0, 0.9);
+}
+
+/* ============================================
+   TUTORIAL POPUP
+   ============================================ */
+#tutorialPopup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  padding: 30px;
+  max-width: 500px;
+  z-index: 10001;
+  display: none;
+}
+
+#tutorialPopup.visible {
+  display: block;
+}
+
+#tutorialOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+  display: none;
+}
+
+#tutorialOverlay.visible {
+  display: block;
+}
+
+#tutorialPopup h2 {
+  margin: 0 0 20px 0;
+  color: #1565C0;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+#tutorialPopup ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 25px 0;
+}
+
+#tutorialPopup li {
+  padding: 12px 0 12px 30px;
+  position: relative;
+  line-height: 1.6;
+  color: #333;
+  font-size: 15px;
+}
+
+#tutorialPopup li:before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: #1565C0;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+#tutorialPopup .tutorial-close {
+  width: 100%;
+  padding: 12px;
+  background-color: #1565C0;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+#tutorialPopup .tutorial-close:hover {
+  background-color: #0D47A1;
+}
+
+/* ============================================
+   LEAFLET MAP CUSTOMIZATION
+   ============================================ */
+/* Remove black selection box from polygons and paths */
+.leaflet-interactive {
+  outline: none !important;
+  outline-style: none !important;
+  outline-width: 0 !important;
+}
+
+svg.leaflet-zoom-animated path,
+svg.leaflet-zoom-animated g path,
+.leaflet-overlay-pane svg path,
+.leaflet-overlay-pane path {
+  outline: none !important;
+  outline-style: none !important;
+  outline-width: 0 !important;
+}
+
+/* Remove focus outline from all SVG elements */
+svg *:focus {
+  outline: none !important;
+}
+
+path:focus {
+  outline: none !important;
+}
+
+/* ============================================
+   DATASET INFO TOOLTIP
+   ============================================ */
+/* Info icon container */
+.info-icon {
+  display: inline-block;
+  position: relative;
+  cursor: help;
+  float: right;
+  width: 18px;
+  height: 18px;
+  margin-left: 8px;
+}
+
+/* Circle with 'i' inside */
+.info-icon-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #1565C0;
+  color: white;
+  font-size: 13px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  text-transform: none;
+  transition: background-color 0.2s;
+}
+
+.info-icon:hover .info-icon-circle {
+  background-color: #0D47A1;
+}
+
+/* Tooltip box */
+.info-tooltip {
+  display: none;
+  position: absolute;
+  right: 25px;
+  top: -5px;
+  background-color: #2c3e50;
+  color: white;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  width: 280px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  font-weight: normal;
+  text-transform: none;
+}
+
+/* Tooltip arrow pointing to the right (towards icon) */
+.info-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  right: -6px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 6px 0 6px 6px;
+  border-color: transparent transparent transparent #2c3e50;
+}
+
+/* Show tooltip on hover */
+.info-icon:hover .info-tooltip {
+  display: block;
+}

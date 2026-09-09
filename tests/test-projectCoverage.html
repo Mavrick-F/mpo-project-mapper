@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>projectCoverage Analysis Tests</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1100px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+      color: #222;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #0066CC;
+      padding-bottom: 10px;
+    }
+    .summary {
+      margin: 20px 0;
+      padding: 16px;
+      border-radius: 6px;
+      font-size: 1.1em;
+    }
+    .summary.pass {
+      background: #d4edda;
+      border: 2px solid #28a745;
+    }
+    .summary.fail {
+      background: #f8d7da;
+      border: 2px solid #dc3545;
+    }
+    .test {
+      background: #fff;
+      margin: 10px 0;
+      padding: 14px;
+      border-radius: 6px;
+      border-left: 4px solid #ccc;
+    }
+    .test.pass {
+      border-left-color: #28a745;
+    }
+    .test.fail {
+      border-left-color: #dc3545;
+      background: #fff5f5;
+    }
+    .test-name {
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .test-detail {
+      color: #666;
+      font-size: 0.95em;
+    }
+    code {
+      background: #eef3f8;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>projectCoverage Analysis Tests</h1>
+  <p>
+    Focused regression tests for <code>projectCoverage</code>. These protect the
+    coverage percentage math that planners will rely on in reports.
+  </p>
+
+  <div id="summary" class="summary"></div>
+  <div id="results"></div>
+
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+  <script>
+    const CONVERSIONS = {
+      FEET_PER_MILE: 5280
+    };
+
+    function hasValidGeometry(feature) {
+      return feature &&
+             feature.geometry &&
+             feature.geometry.coordinates &&
+             Array.isArray(feature.geometry.coordinates) &&
+             feature.geometry.coordinates.length > 0;
+    }
+
+    function analyzeProjectCoverage(drawnGeometry, datasetConfig, geoJsonData) {
+      const geometry = drawnGeometry.type === 'Feature'
+        ? drawnGeometry.geometry
+        : drawnGeometry;
+
+      const bufferUnit = datasetConfig.bufferUnit || 'feet';
+      const matchedFeatures = [];
+
+      const corridorBuffer = turf.buffer(geometry, datasetConfig.bufferDistance, {
+        units: bufferUnit
+      });
+
+      geoJsonData.features.forEach(feature => {
+        try {
+          if (!hasValidGeometry(feature)) return;
+          if (turf.booleanIntersects(corridorBuffer, feature)) {
+            matchedFeatures.push({
+              type: 'Feature',
+              geometry: feature.geometry,
+              properties: { ...feature.properties }
+            });
+          }
+        } catch (error) {
+          console.warn('Error checking feature intersection:', error);
+        }
+      });
+
+      if (matchedFeatures.length === 0) {
+        return { percentage: 0, features: [] };
+      }
+
+      try {
+        const projectLength = turf.length(geometry, { units: 'feet' });
+        const sampleInterval = 10;
+        const numSamples = Math.max(Math.ceil(projectLength / sampleInterval), 10);
+
+        let samplesNearFeature = 0;
+
+        for (let i = 0; i <= numSamples; i++) {
+          const distance = (i / numSamples) * projectLength;
+          const samplePoint = turf.along(
+            geometry,
+            distance / CONVERSIONS.FEET_PER_MILE,
+            { units: 'miles' }
+          );
+
+          let isNearMatch = false;
+          for (const matchedFeature of matchedFeatures) {
+            try {
+              const distanceToFeature = turf.pointToLineDistance(
+                samplePoint,
+                matchedFeature,
+                { units: bufferUnit }
+              );
+
+              if (distanceToFeature <= datasetConfig.bufferDistance) {
+                isNearMatch = true;
+                break;
+              }
+            } catch (error) {
+              continue;
+            }
+          }
+
+          if (isNearMatch) {
+            samplesNearFeature++;
+          }
+        }
+
+        return {
+          percentage: (samplesNearFeature / (numSamples + 1)) * 100,
+          features: matchedFeatures
+        };
+      } catch (error) {
+        console.error('Error calculating project coverage:', error);
+        return { percentage: 0, features: matchedFeatures };
+      }
+    }
+
+    function makeHorizontalProject(endX = -89.99) {
+      return turf.lineString([
+        [-90.0, 35.0],
+        [endX, 35.0]
+      ]);
+    }
+
+    function makeParallelSegment(startX, endX, yOffset = 0.00005) {
+      return turf.lineString([
+        [startX, 35.0 + yOffset],
+        [endX, 35.0 + yOffset]
+      ]);
+    }
+
+    const tests = [];
+
+    function addTest(name, pass, details) {
+      tests.push({ name, pass, details });
+    }
+
+    (() => {
+      const project = makeHorizontalProject();
+      const config = { bufferDistance: 100, bufferUnit: 'feet' };
+      const result = analyzeProjectCoverage(project, config, turf.featureCollection([]));
+
+      addTest(
+        'Returns 0% when no features intersect the corridor buffer',
+        result.percentage === 0 && result.features.length === 0,
+        `Expected 0% / 0 features, got ${result.percentage.toFixed(1)}% / ${result.features.length} features`
+      );
+    })();
+
+    (() => {
+      const project = makeHorizontalProject();
+      const config = { bufferDistance: 100, bufferUnit: 'feet' };
+      const network = turf.featureCollection([
+        makeParallelSegment(-90.0, -89.99)
+      ]);
+      const result = analyzeProjectCoverage(project, config, network);
+
+      addTest(
+        'Returns ~100% when the full project is covered by a parallel segment',
+        result.percentage > 99.5 && result.features.length === 1,
+        `Expected near 100% / 1 feature, got ${result.percentage.toFixed(1)}% / ${result.features.length} features`
+      );
+    })();
+
+    (() => {
+      const project = makeHorizontalProject();
+      const config = { bufferDistance: 100, bufferUnit: 'feet' };
+      const network = turf.featureCollection([
+        makeParallelSegment(-90.0, -89.995)
+      ]);
+      const result = analyzeProjectCoverage(project, config, network);
+
+      addTest(
+        'Returns about half coverage when only half the project has a nearby segment',
+        result.percentage > 40 && result.percentage < 60,
+        `Expected about 50%, got ${result.percentage.toFixed(1)}%`
+      );
+    })();
+
+    (() => {
+      const project = makeHorizontalProject();
+      const config = { bufferDistance: 100, bufferUnit: 'feet' };
+      const crossing = turf.featureCollection([
+        turf.lineString([
+          [-89.995, 34.9995],
+          [-89.995, 35.0005]
+        ])
+      ]);
+      const result = analyzeProjectCoverage(project, config, crossing);
+
+      addTest(
+        'Keeps perpendicular crossings from inflating corridor coverage',
+        result.percentage < 15,
+        `Expected a small crossing-only value, got ${result.percentage.toFixed(1)}%`
+      );
+    })();
+
+    (() => {
+      const project = makeHorizontalProject();
+      const config = { bufferDistance: 100, bufferUnit: 'feet' };
+      const network = turf.featureCollection([
+        makeParallelSegment(-90.0, -89.995),
+        makeParallelSegment(-89.995, -89.99)
+      ]);
+      const result = analyzeProjectCoverage(project, config, network);
+
+      addTest(
+        'Combines adjacent matched segments into full coverage',
+        result.percentage > 99.5 && result.features.length === 2,
+        `Expected near 100% / 2 features, got ${result.percentage.toFixed(1)}% / ${result.features.length} features`
+      );
+    })();
+
+    const passCount = tests.filter(t => t.pass).length;
+    const allPassed = passCount === tests.length;
+    const summary = document.getElementById('summary');
+    summary.className = 'summary ' + (allPassed ? 'pass' : 'fail');
+    summary.textContent = `${passCount} / ${tests.length} tests passed`;
+
+    const results = document.getElementById('results');
+    tests.forEach(test => {
+      const div = document.createElement('div');
+      div.className = 'test ' + (test.pass ? 'pass' : 'fail');
+      div.innerHTML = `
+        <div class="test-name">${test.pass ? 'PASS' : 'FAIL'} - ${test.name}</div>
+        <div class="test-detail">${test.details}</div>
+      `;
+      results.appendChild(div);
+    });
+  </script>
+</body>
+</html>
