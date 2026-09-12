@@ -96,7 +96,7 @@ function initializeMap() {
       return false;
     }
 
-    // Add CartoDB Voyager basemap (streets style, similar to Google Maps)
+    // Add OpenStreetMap standard basemap (no API key required)
     const basemap = L.tileLayer(CONFIG.basemapUrl, {
       attribution: CONFIG.basemapAttribution,
       maxZoom: 19

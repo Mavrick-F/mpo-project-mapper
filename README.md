@@ -1,6 +1,6 @@
 # MPO Project Application Tool
 
-![Version](https://img.shields.io/badge/v-3.0-blue)
+![Version](https://img.shields.io/badge/v-3.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-web-lightgrey)
 
@@ -9,6 +9,10 @@ Web-based spatial analysis tool for Metropolitan Planning Organization (MPO) pro
 Applicants draw proposed projects on an interactive map. The tool analyzes those projects against configured regional planning datasets and generates a PDF report.
 
 ## Try the Demo
+
+Live demo: `https://Mavrick-F.github.io/mpo-project-mapper/` (GitHub Pages).
+
+Or run it locally:
 
 1. Download or clone this repository.
 2. Open a terminal in the project folder.
@@ -89,6 +93,8 @@ See `GUIDE.md` for the deployment checklist and hosting details.
 ## Project Status
 
 Version 3.0 is the initial public release. The tool was originally developed for Memphis MPO's RTP 2055 application process and is open source under the MIT license.
+
+Version 3.1 adds a GitHub Pages deployment workflow and switches the default basemap to OpenStreetMap after CARTO began requiring an API key.
 
 ## Support
 

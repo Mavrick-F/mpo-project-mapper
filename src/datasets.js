@@ -15,8 +15,8 @@ const CONFIG = {
   minLineLength: 100,
 
   // Map configuration
-  basemapUrl: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-  basemapAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  basemapUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  basemapAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 
   // Drawn geometry style - read from config.yaml or use defaults
   drawnLineStyle: window.CONFIG_APP?.mapStyling?.drawnLine || {

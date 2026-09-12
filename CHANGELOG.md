@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.1
+
+- Added a GitHub Actions workflow (`.github/workflows/deploy-pages.yml`) to publish the tool to GitHub Pages on every push to `master`.
+- Switched the default basemap from CartoDB Voyager to OpenStreetMap standard tiles, since CARTO now requires an API key for its raster basemaps. No API key is needed with the new default.
+
 ## v3.0 - Initial Public Release
 
 - Consolidated user documentation into `README.md` and `GUIDE.md`.

@@ -312,13 +312,18 @@ IT notes:
 
 Use GitHub Pages only when the repository and data files can be public.
 
-Setup:
+This repository ships a workflow at `.github/workflows/deploy-pages.yml` that
+publishes the site to GitHub Pages on every push to `master`. Setup:
 
 1. Push the project to a public GitHub repository.
 2. Open repository `Settings` > `Pages`.
-3. Set source to your default branch, folder `/ (root)`.
-4. Save.
+3. Set `Source` to `GitHub Actions`.
+4. Push to `master` (or run the workflow manually from the `Actions` tab).
 5. Open `https://YOUR-USERNAME.github.io/REPO-NAME/`.
+
+If you'd rather not use the workflow, the older branch-based method still
+works: set `Source` to your default branch, folder `/ (root)`, and skip the
+workflow file entirely.
 
 Update flow:
 
