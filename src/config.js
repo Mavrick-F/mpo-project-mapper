@@ -149,8 +149,8 @@ async function loadConfig() {
       },
       categoryOrder: ['Transportation', 'Economic Development', 'Environmental/Cultural'],
       mapStyling: {
-        basemapUrl: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        basemapAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        basemapUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        basemapAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         drawnLine: { color: '#FF0000', weight: 12, opacity: 0.9 },
         measurementLine: { color: '#FF8C00', weight: 4, opacity: 0.8, dashArray: '8, 8' }
       }

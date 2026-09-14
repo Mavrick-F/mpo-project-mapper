@@ -3,7 +3,7 @@
 ## What This Is
 Configurable web-based spatial analysis tool for regional transportation planning. Users draw project alignments or mark point locations, tool automatically analyzes against locally-configured datasets and generates a PDF report. Deployable for any MPO or planning agency by configuring `datasets.yaml` with local data.
 
-**Current Status:** v3.0
+**Current Status:** v3.1
 **Deployment:** GitHub Pages for development; self-hosted for production
 
 ## Architecture
