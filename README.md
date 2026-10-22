@@ -12,6 +12,8 @@ Applicants draw proposed projects on an interactive map. The tool analyzes those
 
 This is the reusable, configurable version of a tool originally developed for Memphis MPO's RTP 2055 project applications. It includes sample data and can be adapted to another region through configuration files.
 
+[Read the case study](docs/case-study.md) for the application workflow, results, and choices behind the tool.
+
 ## Try the Demo
 
 **[Open the live demo](https://mavrick-f.github.io/mpo-project-mapper/)** — runs in your browser, with no account or installation required. Use a desktop browser.

@@ -2,6 +2,7 @@
 
 ## Documentation — 2026-10-22
 
+- Published a case study covering the Memphis application process, analysis, and reuse.
 - Added a screenshot of an example corridor and its analysis results.
 - Clarified the project's origin and made the public demo easier to find.
 
