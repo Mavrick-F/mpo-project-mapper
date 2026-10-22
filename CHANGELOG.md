@@ -1,5 +1,10 @@
 # Changelog
 
+## Documentation — 2026-10-22
+
+- Added a screenshot of an example corridor and its analysis results.
+- Clarified the project's origin and made the public demo easier to find.
+
 ## v3.1
 
 - Enabled GitHub Pages for the public demo, deployed from `master` (`/` root, no build step needed).

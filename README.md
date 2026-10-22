@@ -8,9 +8,13 @@ Web-based spatial analysis tool for Metropolitan Planning Organization (MPO) pro
 
 Applicants draw proposed projects on an interactive map. The tool analyzes those projects against configured regional planning datasets and generates a PDF report.
 
+![Example corridor drawn in Memphis, with opportunity-zone and bridge-condition analysis results in the sidebar.](docs/images/project-analysis.png)
+
+This is the reusable, configurable version of a tool originally developed for Memphis MPO's RTP 2055 project applications. It includes sample data and can be adapted to another region through configuration files.
+
 ## Try the Demo
 
-Live demo: `https://Mavrick-F.github.io/mpo-project-mapper/` (GitHub Pages).
+**[Open the live demo](https://mavrick-f.github.io/mpo-project-mapper/)** — runs in your browser, with no account or installation required. Use a desktop browser.
 
 Or run it locally:
 
